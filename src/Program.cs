@@ -759,7 +759,7 @@ return '';})(";
             return lo;
         }
         // Lit la fiche de chaque contact (rapports reels, QTH, commentaire...) par requete directe, 4 a la fois
-        void FetchDetails(Cdp c, List<Dictionary<string, string>> fresh)
+        int FetchDetails(Cdp c, List<Dictionary<string, string>> fresh)
         {
             var byId = new Dictionary<string, Dictionary<string, string>>();
             var items = new List<Dictionary<string, object>>();
@@ -769,7 +769,7 @@ return '';})(";
                 q.TryGetValue("_POS", out pos); q.TryGetValue("_BOOK", out book);
                 byId[id] = q; items.Add(new Dictionary<string, object> { { "id", id }, { "pos", pos ?? "0" }, { "book", book ?? "" } });
             }
-            if (items.Count == 0) return;
+            if (items.Count == 0) return 0;
             string res = c.Eval(Js.Detail + ser.Serialize(items) + ")");
             int bad = 0, noRst = 0;
             foreach (Dictionary<string, object> d in (System.Collections.IEnumerable)ser.DeserializeObject(res))
@@ -785,7 +785,8 @@ return '';})(";
                 if (g("cy") != "" && !q.ContainsKey("CNTY")) q["CNTY"] = g("cy");
                 if (g("cm") != "") q["COMMENT"] = g("cm");
             }
-            if (bad > 0) Log("  " + bad + " fiche(s) illisible(s) : rapport par défaut utilisé pour elles.");
+            if (bad > 0) Log("  " + bad + " fiche(s) illisible(s) sur " + items.Count + ".");
+            return bad;
         }
 
         void RunWeb()
@@ -848,7 +849,15 @@ return '';})(";
                         if (o.to != "" && dd != "" && string.CompareOrdinal(dd, o.to) > 0) continue;
                         if (seen.IsNew(q)) fresh.Add(q);
                     }
-                    if (o.real && fresh.Count > 0 && !stop) FetchDetails(c, fresh);
+                    if (o.real && fresh.Count > 0 && !stop)
+                    {
+                        int bad = FetchDetails(c, fresh);
+                        if (bad >= 10 || (bad > 0 && bad * 2 >= fresh.Count))
+                        {
+                            Log("QRZ refuse de donner les fiches (limite de consultations atteinte ?). ARRÊT : cette page n'est pas enregistrée. Relancez plus tard avec le même fichier et choisissez « Compléter » : la reprise repart de cette page.");
+                            break;
+                        }
+                    }
                     qsos.AddRange(fresh);
                     Log("Page " + page + (total > 0 ? "/" + total : "") + " (" + pf + " ... " + pl + ") : " + fresh.Count + " nouveaux contacts (total " + qsos.Count + ")");
                     Prog(page, total > 0 ? total : page + 1);
