@@ -1,0 +1,14 @@
+# Sorties de compilation
+dist/
+*.zip
+*.exe
+
+# Journaux personnels exportes (donnees privees) et sorties d'essai
+*.adi
+*.adif
+test/
+QRZ-page-diagnostic.html
+
+# Notes locales (non publiees)
+REPRISE.md
+CHAT.md
