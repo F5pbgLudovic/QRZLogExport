@@ -18,7 +18,7 @@ namespace QRZLogExport
 {
     static class Program
     {
-        public const string Version = "1.2";
+        public const string Version = "1.3";
         [STAThread]
         static void Main(string[] args)
         {
@@ -343,6 +343,7 @@ return '';})(";
         TextBox txtOut, txtLog, txtKey, txtCall; CheckBox chkRst, chkReal; DateTimePicker dtpFrom, dtpTo;
         Button btnOpen, btnGo, btnApi, btnStop, btnDump, btnBrowse, btnClean, btnOpen2;
         NumericUpDown numDays; bool cleanAuto; int cleanMax = int.MaxValue;
+        Button btnOpen3, btnDupScan, btnDupDel; string lastDupReport = "";
         Label lblState;
         ProgressBar bar;
         TabControl tabs;
@@ -362,7 +363,17 @@ return '';})(";
             var t1 = new TabPage("1. Connecté (navigateur Edge)");
             var t2 = new TabPage("2. Clé API QRZ (plus fiable)");
             var t3 = new TabPage("3. Nettoyer « Incoming »");
-            tabs.TabPages.Add(t1); tabs.TabPages.Add(t2); tabs.TabPages.Add(t3);
+            var t4 = new TabPage("4. Doublons");
+            tabs.TabPages.Add(t1); tabs.TabPages.Add(t2); tabs.TabPages.Add(t3); tabs.TabPages.Add(t4);
+            var h4 = new Label { Left = 10, Top = 8, Width = 730, Height = 80, Text =
+                "Cherche dans votre journal QRZ les contacts en double (même indicatif, même bande déduite de la fréquence, à 2 minutes ou moins) et garde celui\r\n" +
+                "qui contient le plus d'informations. 1) « Analyser » écrit un RAPPORT (rien n'est supprimé) à côté du fichier ADIF ci-dessous ; la période\r\n" +
+                "ci-dessous limite l'analyse. 2) Contrôlez le rapport (modifiable). 3) « Supprimer » efface les doublons du rapport (définitif sur QRZ ; les\r\n" +
+                "contacts supprimés sont gardés dans un fichier ADIF de secours pour les réimporter si besoin)." };
+            btnOpen3 = new Button { Left = 10, Top = 100, Width = 200, Height = 34, Text = "Ouvrir QRZ dans Edge" };
+            btnDupScan = new Button { Left = 220, Top = 100, Width = 240, Height = 34, Text = "1. Analyser les doublons" };
+            btnDupDel = new Button { Left = 470, Top = 100, Width = 260, Height = 34, Text = "2. Supprimer les doublons…" };
+            t4.Controls.AddRange(new Control[] { h4, btnOpen3, btnDupScan, btnDupDel });
 
             var h3 = new Label { Left = 10, Top = 10, Width = 730, Height = 78, Text =
                 "Les demandes de confirmation (menu « Incoming » de QRZ) d'anciens contacts s'accumulent. Cet onglet les rejette une par une\r\n" +
@@ -447,6 +458,29 @@ return '';})(";
             btnApi.Click += (s, e) => Start(RunApi);
             btnDump.Click += (s, e) => Start(RunDump);
             btnOpen2.Click += (s, e) => Start(() => OpenEdge("https://logbook.qrz.com/"));
+            btnOpen3.Click += (s, e) => Start(() => OpenEdge("https://logbook.qrz.com/"));
+            btnDupScan.Click += (s, e) => Start(RunDup);
+            btnDupDel.Click += (s, e) =>
+            {
+                string f = lastDupReport;
+                if (f == "" || !File.Exists(f))
+                {
+                    string dir = Path.GetDirectoryName(Path.GetFullPath(txtOut.Text));
+                    using (var d = new OpenFileDialog { Title = "Rapport de doublons à appliquer", Filter = "Rapport de doublons (QRZ-doublons-*.tsv)|QRZ-doublons-*.tsv|Tous|*.*", InitialDirectory = Directory.Exists(dir) ? dir : null })
+                    { if (d.ShowDialog() != DialogResult.OK) return; f = d.FileName; }
+                }
+                else
+                {
+                    var q = MessageBox.Show(this, "Appliquer ce rapport ?\r\n" + f + "\r\n\r\nOUI = ce rapport   NON = en choisir un autre", "Supprimer les doublons", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    if (q == DialogResult.Cancel) return;
+                    if (q == DialogResult.No)
+                    {
+                        using (var d = new OpenFileDialog { Filter = "Rapport de doublons (*.tsv)|*.tsv", InitialDirectory = Path.GetDirectoryName(f) })
+                        { if (d.ShowDialog() != DialogResult.OK) return; f = d.FileName; }
+                    }
+                }
+                string ff = f; Start(() => RunDupDel(ff));
+            };
             btnClean.Click += (s, e) => { int d = (int)numDays.Value; Start(() => RunClean(d)); };
 
             // Mode test sans clic : QRZLogExport.exe --clean port=N days=N [max=N] [log=fichier]
@@ -464,6 +498,26 @@ return '';})(";
                 Shown += (s, e) => Start(() => { if (port == 0) OpenEdge("https://logbook.qrz.com/"); RunClean(dd); Invoke((Action)Close); });
             }
             btnStop.Click += (s, e) => { stop = true; Log("Arrêt demandé..."); };
+
+            // Mode test sans clic : --dup port=N [from=AAAA-MM-JJ] [to=AAAA-MM-JJ] [out=fichier.adi] [log=fichier]
+            //                       --dupdel port=N file=rapport.tsv [max=N] [log=fichier]   (⚠ supprime vraiment)
+            if (args.Length >= 1 && (args[0] == "--dup" || args[0] == "--dupdel"))
+            {
+                cleanAuto = true; testLog = Path.Combine(Path.GetTempPath(), "qrzlogexport-dup.log"); string rf = "";
+                for (int ai = 1; ai < args.Length; ai++)
+                {
+                    string a = args[ai];
+                    if (a.StartsWith("port=")) port = int.Parse(a.Substring(5));
+                    else if (a.StartsWith("from=")) testFrom = a.Substring(5).Replace("-", "");
+                    else if (a.StartsWith("to=")) testTo = a.Substring(3).Replace("-", "");
+                    else if (a.StartsWith("out=")) txtOut.Text = a.Substring(4);
+                    else if (a.StartsWith("file=")) rf = a.Substring(5);
+                    else if (a.StartsWith("max=")) cleanMax = int.Parse(a.Substring(4));
+                    else if (a.StartsWith("log=")) testLog = a.Substring(4);
+                }
+                bool del = args[0] == "--dupdel";
+                Shown += (s, e) => Start(() => { if (port == 0) OpenEdge("https://logbook.qrz.com/"); if (del) RunDupDel(rf); else RunDup(); Invoke((Action)Close); });
+            }
 
             // Mode test sans clic : QRZLogExport.exe --test <url> <sortie.adi>
             if (args.Length >= 3 && args[0] == "--test")
@@ -497,7 +551,7 @@ return '';})(";
         void Busy(bool b)
         {
             if (InvokeRequired) { try { BeginInvoke((Action)(() => Busy(b))); } catch { } return; }
-            btnGo.Enabled = btnApi.Enabled = btnDump.Enabled = btnOpen.Enabled = btnOpen2.Enabled = btnClean.Enabled = !b; btnStop.Enabled = b;
+            btnGo.Enabled = btnApi.Enabled = btnDump.Enabled = btnOpen.Enabled = btnOpen2.Enabled = btnClean.Enabled = btnOpen3.Enabled = btnDupScan.Enabled = btnDupDel.Enabled = !b; btnStop.Enabled = b;
         }
         void Start(Action a)
         {
@@ -829,6 +883,288 @@ return '';})(";
                 GoRequests(c);
                 Log("Terminé : " + done + " demande(s) rejetée(s)." + (stop ? " (arrêté à la demande)" : ""));
             }
+        }
+
+        // ---------- Doublons ----------
+        // Voile qui bloque clics et touches dans la page QRZ pendant le travail (disparait au rechargement ; remis avant chaque operation)
+        const string JsLock =
+            "(function(ttl){window.__qlt=Date.now()+ttl*1000;if(document.getElementById('qlx'))return 1;var d=document.createElement('div');d.id='qlx';" +
+            "d.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,.6);color:#fff;font:bold 28px Segoe UI,Arial;display:flex;align-items:center;justify-content:center;text-align:center;cursor:not-allowed';" +
+            "d.textContent='QRZLogExport travaille : ne touchez pas à cette fenêtre';" +
+            "['click','mousedown','mouseup','keydown','keypress','wheel','contextmenu'].forEach(function(t){d.addEventListener(t,function(e){e.preventDefault();e.stopPropagation();});});" +
+            "window.addEventListener('keydown',function(e){e.preventDefault();e.stopPropagation();},true);document.documentElement.appendChild(d);var iv=setInterval(function(){if(Date.now()>window.__qlt){d.remove();clearInterval(iv);}},2000);return 1;})(";
+        // Supprime une fiche comme le fait QRZ : fiche du contact -> « Delete » (op=logdel) ; verifie ensuite que la fiche n'existe plus
+        const string JsDel =
+            "(async function(id,pos,book){var f=document.getElementById('lbmenu');if(!f)return JSON.stringify({ok:false,why:'formulaire absent'});" +
+            "var u=f.action;function st(d){return [].filter.call(d.querySelectorAll('th'),function(x){return x.textContent.trim()==='Station';})[0];}" +
+            "async function show(){var fd=new FormData(f);fd.set('op','show');fd.set('logid',id);fd.set('logpos',pos);fd.set('bookid',book);" +
+            "var r=await fetch(u,{method:'POST',body:new URLSearchParams(fd),credentials:'include'});return new DOMParser().parseFromString(await r.text(),'text/html');}" +
+            "var d=await show();if(!st(d))return JSON.stringify({ok:false,why:'fiche introuvable'});" +
+            "var m=d.getElementById('lbmenu');if(!m)return JSON.stringify({ok:false,why:'fiche sans formulaire'});" +
+            "var li=m.querySelector('[name=logid]');if(!li||li.value!==id)return JSON.stringify({ok:false,why:'identifiant different'});" +
+            "var f2=new FormData(m);f2.set('op','logdel');" +
+            "await (await fetch(u,{method:'POST',body:new URLSearchParams(f2),credentials:'include'})).text();" +
+            "var d3=await show();var gone=!st(d3);return JSON.stringify({ok:gone,why:gone?'':'la fiche existe toujours'});})(";
+
+        // Indicatif de base : sans prefixe/suffixe de portable (F5PBG/P, EA8/F5PBG -> F5PBG)
+        static string BaseCall(string c)
+        {
+            string best = ""; foreach (string part in (c ?? "").ToUpperInvariant().Split('/'))
+                if (part.Any(char.IsDigit) && part.Any(char.IsLetter) && part.Length > best.Length) best = part;
+            return best != "" ? best : (c ?? "").ToUpperInvariant();
+        }
+        // Bande deduite de la frequence affichee (a defaut, de la colonne bande)
+        static string BandOf(Dictionary<string, string> q)
+        {
+            string fr, band; double f;
+            if (q.TryGetValue("FREQ", out fr) && double.TryParse(fr, NumberStyles.Float, CultureInfo.InvariantCulture, out f)) { string b = Adif.BandFromFreq(f); if (b != "") return b; }
+            if (q.TryGetValue("BAND", out band) && band != "") return band;
+            return fr ?? "";
+        }
+        static double Secs(Dictionary<string, string> q)
+        {
+            string dt, tm; q.TryGetValue("QSO_DATE", out dt); q.TryGetValue("TIME_ON", out tm);
+            DateTime d; if (dt == null || !DateTime.TryParseExact(dt, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d)) return -1;
+            tm = (tm ?? "").PadRight(6, '0');
+            int h = int.Parse(tm.Substring(0, 2)), m = int.Parse(tm.Substring(2, 2)), s = int.Parse(tm.Substring(4, 2));
+            return (d - new DateTime(2000, 1, 1)).TotalSeconds + h * 3600 + m * 60 + s;
+        }
+        static string MinuteKey(Dictionary<string, string> q) { return (q.ContainsKey("CALL") ? q["CALL"].ToUpperInvariant() : "") + "|" + BandOf(q); }
+        // dans chaque groupe (meme indicatif de base, meme bande), regroupe les contacts a 2 minutes ou moins du premier du lot
+        static List<List<Dictionary<string, string>>> Clusters(IEnumerable<List<Dictionary<string, string>>> groups)
+        {
+            var res = new List<List<Dictionary<string, string>>>();
+            foreach (var g in groups)
+            {
+                if (g.Count < 2) continue;
+                var s = g.Select(q => new { q, t = Secs(q) }).Where(x => x.t >= 0).OrderBy(x => x.t).ToList();
+                int i = 0;
+                while (i < s.Count)
+                {
+                    int j = i + 1; var cl = new List<Dictionary<string, string>> { s[i].q };
+                    while (j < s.Count && s[j].t - s[i].t <= 120) { cl.Add(s[j].q); j++; }
+                    if (cl.Count > 1) res.Add(cl);
+                    i = j;
+                }
+            }
+            return res;
+        }
+        static int InfoCount(Dictionary<string, string> q)
+        {
+            int n = 0; foreach (var kv in q) if (!kv.Key.StartsWith("_") && !string.IsNullOrWhiteSpace(kv.Value)) n++; return n;
+        }
+        static string Tsv(string s) { return (s ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' '); }
+
+        void RunDup()
+        {
+            Opts o = null; Invoke((Action)(() => o = ReadOpts()));
+            if (!EdgeAlive())
+            {
+                Log("Edge n'est pas ouvert : cliquez d'abord sur « Ouvrir QRZ dans Edge » et connectez-vous.");
+                if (!cleanAuto) Invoke((Action)(() => MessageBox.Show(this, "Edge n'est pas ouvert.\r\n\r\n1) Cliquez sur « Ouvrir QRZ dans Edge »\r\n2) Connectez-vous à QRZ et affichez la liste de vos contacts\r\n3) Relancez « Analyser les doublons »", "Doublons", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                return;
+            }
+            string outDir = Path.GetDirectoryName(Path.GetFullPath(o.file));
+            using (var c = Attach())
+            {
+                var p = Extract(c);
+                if (p.login && !p.table) { Log("La page demande un mot de passe : connectez-vous dans Edge, affichez votre journal, puis recommencez."); return; }
+                if (!p.table || p.rows.Count == 0) { Log("Aucun tableau de contacts sur cette page (" + p.url + "). Affichez la liste de vos contacts (logbook.qrz.com) puis recommencez."); return; }
+                int total = p.pages;
+                var map = MapCols(p.cols, p.headers);
+                if (!map.Contains("CALL")) { Log("Colonne d'indicatif non reconnue."); return; }
+                int curPage; if (!int.TryParse(p.ipage, out curPage) || curPage <= 0) curPage = 1;
+                string d1, d2; PageDates(p, map, out d1, out d2);
+                bool desc = string.CompareOrdinal(d1, d2) >= 0;
+                Log("Analyse des doublons : " + (total > 0 ? total + " pages" : "nombre de pages inconnu") + (o.from != "" || o.to != "" ? ". Période : " + (o.from == "" ? "début" : o.from) + " -> " + (o.to == "" ? "fin" : o.to) : ", tout le journal") + ".");
+                string startBound = desc ? o.to : o.from;
+                int startPage = 1;
+                if (startBound != "" && total > 1) { startPage = FindStartPage(c, map, total, desc, startBound, ref p, ref curPage); if (startPage < 0) { Log("Recherche de la page de départ impossible."); return; } }
+                if (curPage != startPage || p == null)
+                {
+                    var sp = GotoPage(c, startPage, p); if (sp == null) { Log(stop ? "Arrêté." : "Impossible d'atteindre la page " + startPage + "."); return; }
+                    p = sp;
+                }
+                int page = startPage; int count = 0;
+                var groups = new Dictionary<string, List<Dictionary<string, string>>>();
+                var seenIds = new HashSet<string>();
+                bool complete = false;
+                while (!stop)
+                {
+                    try { c.Eval(JsLock + "60)"); } catch { }
+                    string pf, pl; PageDates(p, map, out pf, out pl);
+                    foreach (var r in p.rows)
+                    {
+                        var q = RowToQso(map, r); if (q == null) continue;
+                        string dd = DateOf(q);
+                        if (o.from != "" && dd != "" && string.CompareOrdinal(dd, o.from) < 0) continue;
+                        if (o.to != "" && dd != "" && string.CompareOrdinal(dd, o.to) > 0) continue;
+                        string id; if (q.TryGetValue("_ID", out id) && id != "" && !seenIds.Add(id)) continue;
+                        List<Dictionary<string, string>> g; string k = MinuteKey(q);
+                        if (!groups.TryGetValue(k, out g)) { g = new List<Dictionary<string, string>>(); groups[k] = g; }
+                        g.Add(q); count++;
+                    }
+                    Prog(page, total > 0 ? total : page + 1);
+                    if (page % 10 == 0 || page == startPage) Log("Page " + page + (total > 0 ? "/" + total : "") + " (" + pf + " ... " + pl + ") : " + count + " contacts lus.");
+                    bool done = total > 0 && page >= total;
+                    if (!done && pl != "")
+                    {
+                        if (desc && o.from != "" && string.CompareOrdinal(pl, o.from) < 0) done = true;
+                        if (!desc && o.to != "" && string.CompareOrdinal(pl, o.to) > 0) done = true;
+                    }
+                    if (done) { complete = true; break; }
+                    string sig = Signature(p);
+                    if (c.Eval(Js.Next + (page + 1) + ")") == "") { Log("Pas de page suivante : fin."); complete = true; break; }
+                    PageData np = null; bool changed = false;
+                    for (int attempt = 0; attempt < 4 && !changed && !stop; attempt++)
+                    {
+                        if (attempt > 0) { Log("QRZ n'a pas répondu à la page " + (page + 1) + " : nouvel essai " + attempt + "/3..."); if (c.Eval(Js.Next + (page + 1) + ")") == "") break; }
+                        DateTime t0 = DateTime.Now;
+                        while ((DateTime.Now - t0).TotalSeconds < 45 && !stop)
+                        {
+                            Thread.Sleep(300);
+                            try { np = Extract(c); } catch { continue; }
+                            if (np.rows.Count > 0 && Signature(np) != sig && (np.ipage == "" || np.ipage == (page + 1).ToString())) { changed = true; break; }
+                        }
+                    }
+                    if (!changed) { Log(stop ? "Arrêté." : "La page suivante ne s'est pas chargée après 4 essais : analyse interrompue."); break; }
+                    p = Settle(c, np); page++;
+                    if (total > 0 && page > total + 2) { complete = true; break; }
+                }
+                if (stop || !complete) { Log("Analyse incomplète : aucun rapport écrit."); return; }
+
+                var dups = Clusters(groups.Values);
+                Log(count + " contacts lus, " + dups.Count + " groupe(s) en double.");
+                if (dups.Count == 0) { Log("Aucun doublon."); return; }
+                // fiches detaillees des seuls contacts concernes (RST, QTH, commentaire...) pour comparer l'information
+                var members = dups.SelectMany(g => g).ToList();
+                Log("Lecture de la fiche de " + members.Count + " contacts concernés...");
+                for (int i = 0; i < members.Count && !stop; i += 100)
+                {
+                    var part = members.Skip(i).Take(100).ToList();
+                    try { FetchDetails(c, part); } catch (Exception ex) { Log("  fiches : " + ex.Message); }
+                    Prog(Math.Min(i + 100, members.Count), members.Count);
+                }
+                if (stop) { Log("Arrêté : aucun rapport écrit."); return; }
+
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmm");
+                string tsv = Path.Combine(outDir, "QRZ-doublons-" + stamp + ".tsv"), bak = Path.Combine(outDir, "QRZ-doublons-" + stamp + "-supprimes.adi");
+                var sb = new StringBuilder();
+                sb.Append("ACTION\tID\tPOS\tBOOK\tINDICATIF\tDATE\tHEURE\tBANDE\tMODE\tFREQ\tINFOS\tGROUPE\r\n");
+                var toDel = new List<Dictionary<string, string>>(); int gi = 0;
+                foreach (var g in dups.OrderBy(x => x[0].ContainsKey("QSO_DATE") ? x[0]["QSO_DATE"] : ""))
+                {
+                    gi++;
+                    var ordered = g.OrderByDescending(InfoCount).ThenBy(q => { long n; string id; return q.TryGetValue("_ID", out id) && long.TryParse(id, out n) ? n : long.MaxValue; }).ToList();
+                    for (int i = 0; i < ordered.Count; i++)
+                    {
+                        var q = ordered[i]; bool keep = i == 0;
+                        Func<string, string> v = k => { string s; return q.TryGetValue(k, out s) ? Tsv(s) : ""; };
+                        sb.Append((keep ? "GARDER" : "SUPPRIMER") + "\t" + v("_ID") + "\t" + v("_POS") + "\t" + v("_BOOK") + "\t" + v("CALL") + "\t" + v("QSO_DATE") + "\t" + v("TIME_ON") + "\t" + v("BAND") + "\t" + v("MODE") + "\t" + v("FREQ") + "\t" + InfoCount(q) + "\t" + gi + "\r\n");
+                        if (!keep) toDel.Add(q);
+                    }
+                }
+                Directory.CreateDirectory(outDir);
+                File.WriteAllText(tsv, sb.ToString(), new UTF8Encoding(true));
+                File.WriteAllText(bak, Adif.Write(toDel), new UTF8Encoding(false));
+                lastDupReport = tsv;
+                Log("RAPPORT écrit : " + tsv);
+                Log("  " + dups.Count + " groupe(s), " + toDel.Count + " contact(s) à supprimer. Sauvegarde ADIF des contacts à supprimer : " + bak);
+                Log("  Rien n'est supprimé. Contrôlez le rapport (colonne ACTION : mettez GARDER pour épargner une ligne), puis « 2. Supprimer les doublons… ».");
+            }
+        }
+
+        void RunDupDel(string tsv)
+        {
+            if (!File.Exists(tsv)) { Log("Rapport introuvable : " + tsv); return; }
+            var items = new List<string[]>();
+            foreach (var line in File.ReadAllLines(tsv, Encoding.UTF8))
+            {
+                var a = line.Split('\t'); if (a.Length < 6 || a[0].Trim().ToUpperInvariant() != "SUPPRIMER") continue;
+                if (!Regex.IsMatch(a[1], @"^\d+$")) continue;
+                items.Add(a);
+            }
+            string doneFile = tsv + ".fait";
+            var done = new HashSet<string>(File.Exists(doneFile) ? File.ReadAllLines(doneFile) : new string[0]);
+            items = items.Where(a => !done.Contains(a[1])).ToList();
+            if (items.Count == 0) { Log("Rien à supprimer dans ce rapport (déjà fait ou aucune ligne SUPPRIMER)."); return; }
+            if (!EdgeAlive())
+            {
+                Log("Edge n'est pas ouvert : cliquez d'abord sur « Ouvrir QRZ dans Edge » et connectez-vous.");
+                if (!cleanAuto) Invoke((Action)(() => MessageBox.Show(this, "Edge n'est pas ouvert.\r\n\r\n1) Cliquez sur « Ouvrir QRZ dans Edge »\r\n2) Connectez-vous à QRZ\r\n3) Relancez « Supprimer les doublons »", "Doublons", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                return;
+            }
+            if (!cleanAuto)
+            {
+                var ans = (DialogResult)Invoke((Func<DialogResult>)(() => MessageBox.Show(this,
+                    items.Count + " contact(s) vont être SUPPRIMÉS de votre journal QRZ (lignes SUPPRIMER du rapport) :\r\n" + tsv +
+                    "\r\n\r\nLa suppression est définitive sur QRZ (le fichier ADIF « -supprimes.adi » permet de les réimporter). Continuer ?", "Supprimer les doublons", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)));
+                if (ans != DialogResult.Yes) { Log("Annulé, rien n'a été supprimé."); return; }
+            }
+            int[] waits = { 30, 60, 120, 300 };
+            Cdp c = null; int ok = 0, consec = 0, pauseN = 0, n = Math.Min(items.Count, cleanMax);
+            Prog(0, n);
+            var queue = items;
+            try
+            {
+                for (int round = 1; round <= 4 && queue.Count > 0 && !stop && ok < cleanMax; round++)
+                {
+                    if (round > 1)
+                    {
+                        Log("Reprise des " + queue.Count + " échec(s) après une pause de 60 s (passage " + round + "/4)...");
+                        if (c != null) { try { c.Dispose(); } catch { } c = null; }
+                        for (int s = 0; s < 60 && !stop; s++) Thread.Sleep(1000);
+                    }
+                    var failed = new List<string[]>();
+                    foreach (var a in queue)
+                    {
+                        if (stop || ok >= cleanMax) break;
+                        bool good = false; string why = "";
+                        try
+                        {
+                            if (c == null)
+                            {
+                                c = Attach();
+                                if (round > 1 || consec > 0 || c.Eval("(document.getElementById('lbmenu')&&document.querySelector('tr.lrow'))?'1':''") == "")
+                                {
+                                    try { c.Eval("location.href='https://logbook.qrz.com/'"); } catch { }
+                                    Thread.Sleep(6000);
+                                    if (c.Eval("document.getElementById('lbmenu')?'1':''") == "") throw new Exception("la liste du journal n'est pas affichée dans Edge (connexion QRZ ?)");
+                                }
+                            }
+                            try { c.Eval(JsLock + "400)"); } catch { }
+                            var d = ser.Deserialize<Dictionary<string, object>>(c.Eval(JsDel + "'" + a[1] + "','" + (Regex.IsMatch(a[2], @"^\d+$") ? a[2] : "0") + "','" + Regex.Replace(a[3], @"[^\w-]", "") + "')"));
+                            good = (bool)d["ok"]; why = Convert.ToString(d["why"]);
+                        }
+                        catch (Exception ex)
+                        {
+                            why = ex is AggregateException && ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                            if (c != null) { try { c.Dispose(); } catch { } c = null; }
+                        }
+                        string desc = a[4] + " " + a[5] + " " + a[6] + " " + a[7];
+                        if (good) { ok++; consec = 0; pauseN = 0; File.AppendAllText(doneFile, a[1] + "\r\n"); Log("Supprimé " + ok + "/" + n + " : " + desc); Prog(ok, n); Thread.Sleep(500); continue; }
+                        if (why == "fiche introuvable" && round >= 2) { Log("Fiche introuvable (déjà supprimée ?) : " + desc + " — ignorée."); File.AppendAllText(doneFile, a[1] + "\r\n"); continue; }
+                        failed.Add(a); consec++;
+                        Log("Échec pour " + desc + " : " + why + " — on passe au suivant.");
+                        if (consec >= 3)
+                        {
+                            int w = waits[Math.Min(pauseN++, waits.Length - 1)];
+                            Log("Plusieurs échecs de suite : pause de " + w + " s (QRZ se calme), puis reprise avec le contact suivant.");
+                            if (c != null) { try { c.Dispose(); } catch { } c = null; }
+                            for (int s = 0; s < w && !stop; s++) Thread.Sleep(1000);
+                            consec = 0;
+                        }
+                    }
+                    // contacts restants non traites (arret) : ne pas les perdre de vue
+                    queue = failed;
+                }
+                if (queue.Count > 0 && !stop) Log(queue.Count + " contact(s) n'ont pas pu être supprimés (voir « Échec » ci-dessus). Relancez plus tard avec le même rapport : les contacts déjà supprimés sont ignorés.");
+            }
+            finally
+            {
+                if (c != null) { try { c.Eval("location.href='https://logbook.qrz.com/'"); } catch { } try { c.Dispose(); } catch { } }
+            }
+            Log("Terminé : " + ok + " contact(s) supprimé(s)." + (stop ? " (arrêté à la demande)" : ""));
         }
 
         void RunDump()

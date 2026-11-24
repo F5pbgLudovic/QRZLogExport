@@ -1,5 +1,9 @@
 # Historique
 
+## 1.3 — 2026-11-24
+
+- **Nouvel onglet « 4. Doublons »** : analyse du journal (même indicatif, même bande déduite de la fréquence, 2 minutes ou moins ; le contact le plus complet est gardé), **rapport TSV modifiable avant suppression** + ADIF de secours, puis suppression des doublons du rapport (requête « Delete this entry » de QRZ, vérifiée). Un échec n'arrête plus rien : passage au suivant, pauses après 3 échecs de suite, reprise des échecs, fichier `.fait` pour relancer. Voile qui bloque la page QRZ pendant le travail. Modes de test `--dup` et `--dupdel` (⚠ supprime vraiment).
+
 ## 1.2 — 2026-11-24
 
 - **Nouvel onglet « 3. Nettoyer Incoming »** : rejette les demandes de confirmation anciennes de la liste « Incoming » de QRZ (motif « Not in my logbook »). On indique le nombre de jours : toutes les demandes dont la date du QSO est plus ancienne sont rejetées une par une, la liste est rechargée, et on recommence jusqu'à ce qu'il n'en reste plus. Une confirmation (nombre, première et dernière demande) est demandée avant de commencer ; arrêt après 3 échecs de suite ; bouton Arrêter. Essai réel sur une demande : OK.

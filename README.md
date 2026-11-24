@@ -36,6 +36,12 @@ QRZ n'offre pas toujours un export simple de tout le journal. Ce logiciel ouvre 
 
 Les demandes de confirmation reçues d'autres opérateurs (menu **Incoming** de QRZ) s'accumulent. Après connexion (onglet 1), indiquez un nombre de jours : l'application rejette, avec le motif **« Not in my logbook »**, toutes les demandes dont la **date du QSO** est plus ancienne, une par une, recharge la liste et recommence jusqu'à ce qu'il n'en reste plus. Elle demande confirmation avant de commencer (le rejet est définitif) et s'arrête après 3 échecs de suite.
 
+## Chercher et supprimer les doublons (onglet 4)
+
+Après connexion (onglet 1) et affichage de la liste de vos contacts, **« 1. Analyser les doublons »** lit tout le journal (la **période** de l'onglet 1 peut limiter l'analyse ; c'est le livre affiché dans Edge qui est analysé). Sont des doublons les contacts de **même indicatif**, **même bande** (déduite de la fréquence : 28,074 et 28,075 MHz = 10 m) et séparés de **2 minutes ou moins** ; le mode n'est pas comparé. Le contact conservé est celui qui contient le **plus d'informations** (fiche complète lue ; à égalité, le plus ancien).
+
+Rien n'est supprimé à cette étape : un **rapport** `QRZ-doublons-AAAAMMJJ-HHMM.tsv` (ouvrable dans Excel, colonne ACTION = GARDER / SUPPRIMER) est écrit à côté du fichier ADIF, avec un fichier de secours `…-supprimes.adi` (réimportable dans QRZ). Vous pouvez modifier le rapport (mettre GARDER pour épargner une ligne). **« 2. Supprimer les doublons… »** applique les lignes SUPPRIMER (même requête que le bouton *Delete this entry* de QRZ, vérifiée ensuite ; confirmation demandée, suppression définitive sur QRZ). Un échec n'arrête rien : on passe au contact suivant, pause de 30 s à 5 min après 3 échecs de suite, puis reprise des échecs. Le fichier `.fait` permet de relancer le même rapport sans refaire les suppressions déjà faites. Pendant le travail, un **voile** bloque clics et touches dans la page QRZ (ne touchez pas à la fenêtre Edge).
+
 ## Champs exportés
 
 La liste de QRZ contient : date, heure (UTC), indicatif, fréquence, mode, locator du correspondant, pays, nom. La **bande** est déduite de la fréquence. L'identifiant interne QRZ est écrit dans `APP_QRZLOG_LOGID`.
@@ -104,6 +110,12 @@ GNU GPL v3 — voir [LICENSE](LICENSE). Logiciel libre et gratuit, sans aucune g
 ## Clean the "Incoming" list (tab 3)
 
 Confirmation requests from other operators (QRZ **Incoming** menu) pile up. Click *Ouvrir QRZ dans Edge*, log in, enter a number of days, then *Nettoyer la liste « Incoming »*: the program rejects, with the reason **"Not in my logbook"**, every request whose **QSO date** is older than that, one by one, reloads the list and starts again until none is left. It asks for confirmation first (a rejection is final) and stops after 3 failures in a row. If Edge is not open, a reminder window explains what to do (same for *Récupérer tout le journal*).
+
+## Find and delete duplicate QSOs (tab 4)
+
+After logging in (tab 1) and showing your QSO list, **"1. Analyser les doublons"** reads the whole log (the **date range** of tab 1 can limit it; the logbook displayed in Edge is the one analysed). Duplicates = QSOs with the **same call sign**, the **same band** (derived from the frequency: 28.074 and 28.075 MHz = 10 m) and **2 minutes or less** apart; the mode is not compared. The one kept is the QSO with the **most information** (full detail page read; on a tie, the oldest).
+
+Nothing is deleted at that stage: a **report** `QRZ-doublons-YYYYMMDD-HHMM.tsv` (opens in Excel, ACTION column = GARDER / SUPPRIMER) is written next to the ADIF file, with a safety copy `…-supprimes.adi` (re-importable into QRZ). You may edit the report (set GARDER to spare a line). **"2. Supprimer les doublons…"** applies the SUPPRIMER lines (same request as QRZ's *Delete this entry* button, checked afterwards; confirmation first; deletion is final on QRZ). A failure stops nothing: the program moves on to the next QSO, pauses 30 s to 5 min after 3 failures in a row, then retries the failures. The `.fait` file lets you rerun the same report without redoing deletions already done. While working, an **overlay** blocks clicks and keys in the QRZ page (do not touch the Edge window).
 
 ## Exported fields (method 1)
 
