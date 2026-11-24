@@ -12,3 +12,7 @@ QRZ-page-diagnostic.html
 # Notes locales (non publiees)
 REPRISE.md
 CHAT.md
+*.adi.log
+*.adi.bak
+*.adi.tmp
+QRZLogExport-rapports.txt
