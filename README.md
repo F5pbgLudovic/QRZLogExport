@@ -8,6 +8,12 @@
 
 QRZ n'offre pas toujours un export simple de tout le journal. Ce logiciel ouvre QRZ dans Edge, vous vous connectez normalement, puis il **parcourt toutes les pages** de votre journal à votre place et assemble le fichier ADIF.
 
+## Les trois onglets
+
+1. **Exporter le journal** : journal complet (ou une période) en un ADIF trié, reprise d'un export interrompu, vrais rapports ou rapports par défaut.
+2. **Nettoyer « Incoming »** : rejette les anciennes demandes de confirmation de QRZ.
+3. **Doublons** : un seul bouton qui analyse, montre le résultat, puis supprime les doublons après confirmation (reprise possible).
+
 ## Télécharger
 
 **[Télécharger la dernière version](https://github.com/F5pbgLudovic/QRZLogExport/releases/latest)** :
@@ -17,30 +23,30 @@ QRZ n'offre pas toujours un export simple de tout le journal. Ce logiciel ouvre 
 
 ## Utilisation
 
-**Méthode 1 — Connecté (navigateur Edge)** :
+**Onglet 1 — Exporter le journal** :
 
 1. Cliquez sur **Ouvrir QRZ dans Edge** : une fenêtre Edge s'ouvre sur QRZ. La connexion est retenue pour les fois suivantes (profil Edge à part, dans `%LOCALAPPDATA%\QRZLogExport`).
 2. Connectez-vous à QRZ, puis affichez la **liste de vos contacts** (Logbook). Si vous avez plusieurs livres, choisissez celui à exporter.
 3. Cliquez sur **Récupérer tout le journal** : le nombre de pages est lu en haut de la page, toutes sont visitées (revient d'abord à la page 1), les doublons sont écartés et le fichier `.adi` est écrit, trié par date et heure. Une sauvegarde intermédiaire est faite toutes les 100 pages. **Arrêter** enregistre ce qui est déjà lu.
 4. **Enregistrer la page (diagnostic)** sauvegarde le HTML affiché : à joindre à un signalement si une page n'est pas reconnue.
 
-**Méthode 2 — Clé API QRZ** (ADIF complet fourni par QRZ, avec RST, commentaires, etc.) : collez la clé du journal (QRZ > Logbook > Settings > API Access) et votre indicatif. *Cette méthode suit la documentation de l'API QRZ mais n'a pas encore été essayée sur un vrai compte.*
+**Pas de méthode par clé API** : l'API du journal de QRZ exige un abonnement QRZ (essai sur un compte gratuit : « user does not have a valid QRZ subscription »). Le programme passe donc uniquement par votre session Edge, sans abonnement.
 
 ## Période, reprise, vrais rapports
 
 - **Période** : cochez « du … au … » pour ne récupérer que certaines dates. L'application saute directement à la bonne page (recherche dichotomique) et s'arrête quand la période est dépassée.
 - **Reprise** : si le fichier de sortie existe déjà, l'application demande s'il faut le **compléter** (elle reprend à la date où le fichier s'arrête et n'ajoute que les contacts manquants, sans doublons) ou **recommencer** (l'ancien est gardé en `.bak`). Après un arrêt, une coupure ou un plantage, il suffit de relancer avec le même fichier.
-- **Vrais rapports** (case « Lire les VRAIS rapports ») : la liste de QRZ ne contient pas les RST (colonnes réservées aux abonnés), mais la fiche de chaque contact oui. L'application lit chaque fiche par une requête directe (aucun clic) et récupère **RST envoyé / reçu, QTH, commentaire, état, comté**. C'est lent (environ 1 contact par seconde) : à réserver à une période de dates, par exemple quelques milliers de contacts.
+- **Vrais rapports** (case « Lire les VRAIS rapports ») (exclusive de « Ajouter un rapport par défaut » : l’une ou l’autre, pas les deux) : la liste de QRZ ne contient pas les RST (colonnes réservées aux abonnés), mais la fiche de chaque contact oui. L'application lit chaque fiche par une requête directe (aucun clic) et récupère **RST envoyé / reçu, QTH, commentaire, état, comté**. C'est lent (environ 1 contact par seconde) : à réserver à une période de dates, par exemple quelques milliers de contacts.
 
-## Nettoyer la liste « Incoming » (onglet 3)
+## Nettoyer la liste « Incoming » (onglet 2)
 
 Les demandes de confirmation reçues d'autres opérateurs (menu **Incoming** de QRZ) s'accumulent. Après connexion (onglet 1), indiquez un nombre de jours : l'application rejette, avec le motif **« Not in my logbook »**, toutes les demandes dont la **date du QSO** est plus ancienne, une par une, recharge la liste et recommence jusqu'à ce qu'il n'en reste plus. Elle demande confirmation avant de commencer (le rejet est définitif) et s'arrête après 3 échecs de suite.
 
-## Chercher et supprimer les doublons (onglet 4)
+## Chercher et supprimer les doublons (onglet 3)
 
-Après connexion (onglet 1) et affichage de la liste de vos contacts, **« 1. Analyser les doublons »** lit tout le journal (la **période** de l'onglet 1 peut limiter l'analyse ; c'est le livre affiché dans Edge qui est analysé). Sont des doublons les contacts de **même indicatif**, **même bande** (déduite de la fréquence : 28,074 et 28,075 MHz = 10 m) et séparés de **2 minutes ou moins** ; le mode n'est pas comparé. Le contact conservé est celui qui contient le **plus d'informations** (fiche complète lue ; à égalité, le plus ancien).
+Après connexion (onglet 1) et affichage de la liste de vos contacts, **« 1. Analyser les doublons »** lit tout le journal (la **période** de l'onglet 1 (ou de cet onglet) peut limiter l'analyse ; c'est le livre affiché dans Edge qui est analysé). Sont des doublons les contacts de **même indicatif**, **même bande** (déduite de la fréquence : 28,074 et 28,075 MHz = 10 m) et séparés de **2 minutes ou moins** ; le mode n'est pas comparé. Le contact conservé est celui qui contient le **plus d'informations** (fiche complète lue ; à égalité, le plus ancien).
 
-Rien n'est supprimé à cette étape : un **rapport** `QRZ-doublons-AAAAMMJJ-HHMM.tsv` (ouvrable dans Excel, colonne ACTION = GARDER / SUPPRIMER) est écrit à côté du fichier ADIF, avec un fichier de secours `…-supprimes.adi` (réimportable dans QRZ). Vous pouvez modifier le rapport (mettre GARDER pour épargner une ligne). **« 2. Supprimer les doublons… »** applique les lignes SUPPRIMER (même requête que le bouton *Delete this entry* de QRZ, vérifiée ensuite ; confirmation demandée, suppression définitive sur QRZ). Un échec n'arrête rien : on passe au contact suivant, pause de 30 s à 5 min après 3 échecs de suite, puis reprise des échecs. Le fichier `.fait` permet de relancer le même rapport sans refaire les suppressions déjà faites. Pendant le travail, un **voile** bloque clics et touches dans la page QRZ (ne touchez pas à la fenêtre Edge).
+Un seul bouton, **« Supprimer les doublons »** : il lance l'analyse, affiche le résultat dans une fenêtre (liste des doublons, lignes à supprimer en rouge ; rien n'est supprimé tant que vous n'avez pas cliqué sur « Supprimer ces N doublons »), puis supprime après confirmation (suppression définitive sur QRZ ; une copie ADIF de secours est gardée par le programme dans `%LOCALAPPDATA%\QRZLogExport\doublons`, inutile d'aller la chercher). Si une analyse ou une suppression a été **interrompue** (fermeture du programme, panne), le programme le détecte au démarrage ou au clic et propose de **reprendre** là où elle s'est arrêtée ou de **recommencer**. La suppression utilise la même requête que le bouton *Delete this entry* de QRZ, vérifiée ensuite. Un échec n'arrête rien : on passe au contact suivant, pause de 30 s à 5 min après 3 échecs de suite, puis reprise des échecs. Pendant le travail, un **voile** bloque clics et touches dans la page QRZ ; il disparaît dès la fin de l'analyse.
 
 ## Champs exportés
 
@@ -91,33 +97,39 @@ GNU GPL v3 — voir [LICENSE](LICENSE). Logiciel libre et gratuit, sans aucune g
 
 **QRZLogExport** downloads your **QRZ.com Logbook** and saves it as **one single ADIF file**, sorted by date and time, ready to import into a logging program (HamRadioLink, eQSL, …). **Portable** Windows 10 / 11 tool: a single `QRZLogExport.exe`, no installation.
 
+## The three tabs
+
+1. **Export the log**: whole log (or a date range) as one sorted ADIF, resume an interrupted export, real or default reports.
+2. **Clean "Incoming"**: rejects old QRZ confirmation requests.
+3. **Doublons** (duplicates): one button that analyses, shows the result, then deletes duplicates after confirmation (resumable).
+
 ## Download
 
 **[Latest release](https://github.com/F5pbgLudovic/QRZLogExport/releases/latest)**: `QRZLogExport.exe` (program only) or `QRZLogExport-X.Y.zip` (program + docs + licence + **source code**, handy if your antivirus blocks the exe).
 
 ## Usage
 
-**Method 1 — Logged-in browser (Edge)**: click *Ouvrir QRZ dans Edge*, log in to QRZ yourself, show your contact list (Logbook; pick the book to export if you have several), then click *Récupérer tout le journal*. The page count is read from the page, every page is visited (it first goes back to page 1), duplicates are dropped and the `.adi` file is written, sorted by date/time. An intermediate save is made every 100 pages; *Arrêter* saves what has been read so far.
+**Tab 1 — Export the log**: click *Ouvrir QRZ dans Edge*, log in to QRZ yourself, show your contact list (Logbook; pick the book to export if you have several), then click *Récupérer tout le journal*. The page count is read from the page, every page is visited (it first goes back to page 1), duplicates are dropped and the `.adi` file is written, sorted by date/time. An intermediate save is made every 100 pages; *Arrêter* saves what has been read so far.
 
-**Method 2 — QRZ API key**: paste the logbook API key (QRZ > Logbook > Settings > API Access) and your callsign to get the full ADIF from QRZ (RST, comments, …). *Follows the QRZ API documentation but has not been tried on a real account yet.*
+**No API-key method**: the QRZ logbook API requires a QRZ subscription (tried on a free account: "user does not have a valid QRZ subscription"). The program only uses your Edge session, no subscription needed.
 
 ## Date range, resume, real reports
 
 - **Date range**: tick "du … au …" to fetch only some dates. The program jumps straight to the right page (binary search) and stops once the range is passed.
 - **Resume**: if the output file already exists, the program asks whether to **complete** it (restarts from the date where the file stops, adds only missing QSOs, no duplicates) or **restart** (the old file is kept as `.bak`). After a stop, a power cut or a crash, just run again with the same file.
-- **Real reports** (box "Lire les VRAIS rapports"): the QRZ list has no RST (columns reserved to subscribers) but each QSO's detail page does. The program reads each page with a direct request (no clicks) and gets **RST sent / received, QTH, comment, state, county**. Slow (about 1 QSO per second): use it for a date range.
+- **Real reports** (box "Lire les VRAIS rapports") (mutually exclusive with "Ajouter un rapport par défaut": one or the other, not both): the QRZ list has no RST (columns reserved to subscribers) but each QSO's detail page does. The program reads each page with a direct request (no clicks) and gets **RST sent / received, QTH, comment, state, county**. Slow (about 1 QSO per second): use it for a date range.
 
-## Clean the "Incoming" list (tab 3)
+## Clean the "Incoming" list (tab 2)
 
 Confirmation requests from other operators (QRZ **Incoming** menu) pile up. Click *Ouvrir QRZ dans Edge*, log in, enter a number of days, then *Nettoyer la liste « Incoming »*: the program rejects, with the reason **"Not in my logbook"**, every request whose **QSO date** is older than that, one by one, reloads the list and starts again until none is left. It asks for confirmation first (a rejection is final) and stops after 3 failures in a row. If Edge is not open, a reminder window explains what to do (same for *Récupérer tout le journal*).
 
-## Find and delete duplicate QSOs (tab 4)
+## Find and delete duplicate QSOs (tab 3)
 
 After logging in (tab 1) and showing your QSO list, **"1. Analyser les doublons"** reads the whole log (the **date range** of tab 1 can limit it; the logbook displayed in Edge is the one analysed). Duplicates = QSOs with the **same call sign**, the **same band** (derived from the frequency: 28.074 and 28.075 MHz = 10 m) and **2 minutes or less** apart; the mode is not compared. The one kept is the QSO with the **most information** (full detail page read; on a tie, the oldest).
 
-Nothing is deleted at that stage: a **report** `QRZ-doublons-YYYYMMDD-HHMM.tsv` (opens in Excel, ACTION column = GARDER / SUPPRIMER) is written next to the ADIF file, with a safety copy `…-supprimes.adi` (re-importable into QRZ). You may edit the report (set GARDER to spare a line). **"2. Supprimer les doublons…"** applies the SUPPRIMER lines (same request as QRZ's *Delete this entry* button, checked afterwards; confirmation first; deletion is final on QRZ). A failure stops nothing: the program moves on to the next QSO, pauses 30 s to 5 min after 3 failures in a row, then retries the failures. The `.fait` file lets you rerun the same report without redoing deletions already done. While working, an **overlay** blocks clicks and keys in the QRZ page (do not touch the Edge window).
+A single button, **"Supprimer les doublons"**: it runs the analysis, shows the result in a window (list of duplicates, lines to delete in red; nothing is deleted until you click "Supprimer ces N doublons"), then deletes after confirmation (final on QRZ; a safety ADIF copy is kept by the program in `%LOCALAPPDATA%\QRZLogExport\doublons`, no need to look for it). If an analysis or a deletion was **interrupted** (program closed, crash), the program detects it at startup or on click and offers to **resume** where it stopped or to **start over**. Deletion uses the same request as QRZ's *Delete this entry* button, checked afterwards. A failure stops nothing: the program moves on to the next QSO, pauses 30 s to 5 min after 3 failures in a row, then retries the failures. While working, an **overlay** blocks clicks and keys in the QRZ page; it disappears as soon as the analysis ends.
 
-## Exported fields (method 1)
+## Exported fields 
 
 The QRZ table holds: date, time (UTC), callsign, frequency, mode, the **correspondent's grid**, country, name. The **band** is derived from the frequency. A default report by mode (59 phone, 599 CW, -01 FT8/FT4/FT2, …; editable file `QRZLogExport-rapports.txt` next to the exe) is added to QSOs without one. Slashed zeros "Ø" become "0"; accents are converted to ASCII.
 

@@ -1,5 +1,12 @@
 # Historique
 
+## 1.4 — 2026-11-24
+
+- **Onglet « Clé API » supprimé** : l'API du journal de QRZ exige un abonnement (essai sur un compte gratuit : « user does not have a valid QRZ subscription »). Onglets : 1. Exporter le journal, 2. Nettoyer « Incoming », 3. Doublons.
+- **Cases rapports exclusives** : « rapport par défaut » et « VRAIS rapports » ne peuvent plus être cochées ensemble.
+- **Doublons : un seul bouton « Supprimer les doublons »** : analyse, fenêtre de résultat, suppression après confirmation ; rapports et copie ADIF de secours rangés par le programme (rien à chercher) ; analyse ou suppression interrompue : reprise ou nouvelle analyse proposée au démarrage ou au clic ; fenêtre Edge libérée dès la fin de l'analyse.
+- **Réglages affichés selon l'onglet** : la case des rapports par défaut et « Lire les VRAIS rapports » n'apparaissent que dans l'onglet 1 ; fichier et période dans les onglets 1 et 3 ; texte de la case clarifié (« 59 phonie, 599 CW, -01 FT8, etc. »).
+
 ## 1.3 — 2026-11-24
 
 - **Nouvel onglet « 4. Doublons »** : analyse du journal (même indicatif, même bande déduite de la fréquence, 2 minutes ou moins ; le contact le plus complet est gardé), **rapport TSV modifiable avant suppression** + ADIF de secours, puis suppression des doublons du rapport (requête « Delete this entry » de QRZ, vérifiée). Un échec n'arrête plus rien : passage au suivant, pauses après 3 échecs de suite, reprise des échecs, fichier `.fait` pour relancer. Voile qui bloque la page QRZ pendant le travail. Modes de test `--dup` et `--dupdel` (⚠ supprime vraiment).
