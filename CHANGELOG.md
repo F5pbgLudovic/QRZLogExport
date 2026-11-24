@@ -1,5 +1,10 @@
 # Historique
 
+## 1.5 — 2026-11-24
+
+- **Doublons : écart configurable** (onglet Doublons, 0 à 10 000 minutes, 2 par défaut) au lieu des 2 minutes fixes.
+- **Suppression : échecs traités autrement** : un échec n'arrête rien et ne fait aucune pause, on passe au contact suivant jusqu'au dernier ; pause de 60 s puis un 2e et dernier passage sur les échecs ; si des contacts restent, arrêt avec la **liste des non supprimés et leur page QRZ** (colonne PAGE du rapport).
+
 ## 1.4 — 2026-11-24
 
 - **Onglet « Clé API » supprimé** : l'API du journal de QRZ exige un abonnement (essai sur un compte gratuit : « user does not have a valid QRZ subscription »). Onglets : 1. Exporter le journal, 2. Nettoyer « Incoming », 3. Doublons.
