@@ -30,6 +30,8 @@ QRZ n'offre pas toujours un export simple de tout le journal. Ce logiciel ouvre 
 
 Le tableau de QRZ ne contient que : date, heure (UTC), indicatif, fréquence, mode, locator, pays, nom. La **bande** est déduite de la fréquence. Les RST, QTH, commentaires et confirmations ne sont pas dans le tableau (utilisez la méthode 2 pour les avoir).
 
+- **Rapports** (case cochée par défaut, jamais appliqués à un contact qui en a déjà) : 59/59 en phonie (SSB, USB, LSB, AM, FM, FreeDV, D-STAR, C4FM, DMR), 599/599 en CW, -01/-01 en FT8, FT4 et FT2. Les autres modes (JT65, PSK31, RTTY, DATA…) restent sans rapport ; la liste est affichée à la fin de l'export.
+- **Mon locator** (facultatif) : ajouté à chaque contact dans `MY_GRIDSQUARE`. Le locator du correspondant (`GRIDSQUARE`) est exporté quand QRZ en a un.
 - Les zéros barrés « Ø » de QRZ sont remplacés par des « 0 ».
 - Les accents sont convertis en ASCII (les alphabets non latins deviennent « ? »), pour une compatibilité maximale à l'import.
 

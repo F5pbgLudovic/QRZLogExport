@@ -18,7 +18,7 @@ namespace QRZLogExport
 {
     static class Program
     {
-        public const string Version = "1.0";
+        public const string Version = "1.1";
         [STAThread]
         static void Main(string[] args)
         {
@@ -90,6 +90,23 @@ namespace QRZLogExport
             };
             var s = l.Select((q, i) => new { q, i, k = key(q) }).OrderBy(x => x.k, StringComparer.Ordinal).ThenBy(x => x.i).Select(x => x.q).ToList();
             l.Clear(); l.AddRange(s);
+        }
+        static readonly HashSet<string> PhoneModes = new HashSet<string> { "SSB", "USB", "LSB", "AM", "FM", "FREEDV", "DSTAR", "C4FM", "DMR", "DIGITALVOICE", "DV", "PHONE" };
+        static readonly HashSet<string> CwModes = new HashSet<string> { "CW" };
+        static readonly HashSet<string> FtModes = new HashSet<string> { "FT8", "FT4", "FT2" };
+        // Rapports par defaut (seulement si le contact n'en a pas). Retourne les modes sans regle -> nombre de contacts.
+        public static Dictionary<string, int> ApplyReports(List<Dictionary<string, string>> qsos)
+        {
+            var unknown = new Dictionary<string, int>();
+            foreach (var q in qsos)
+            {
+                if (q.ContainsKey("RST_SENT") || q.ContainsKey("RST_RCVD")) continue;
+                string m; q.TryGetValue("MODE", out m); m = (m ?? "").ToUpperInvariant();
+                string r = PhoneModes.Contains(m) ? "59" : CwModes.Contains(m) ? "599" : FtModes.Contains(m) ? "-01" : null;
+                if (r == null) { string k = m == "" ? "(vide)" : m; int n; unknown.TryGetValue(k, out n); unknown[k] = n + 1; continue; }
+                q["RST_SENT"] = r; q["RST_RCVD"] = r;
+            }
+            return unknown;
         }
         public static string DedupKey(Dictionary<string, string> q)
         {
@@ -168,6 +185,21 @@ namespace QRZLogExport
                 object v; return rr.TryGetValue("value", out v) && v != null ? v.ToString() : "";
             }
         }
+        // Commande CDP simple (sans retour utile)
+        public void Call(string method, Dictionary<string, object> prm)
+        {
+            int my = ++id;
+            var req = ser.Serialize(new Dictionary<string, object> { { "id", my }, { "method", method }, { "params", prm ?? new Dictionary<string, object>() } });
+            ws.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(req)), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+            var buf = new byte[65536];
+            for (int guard = 0; guard < 200; guard++)
+            {
+                var ms = new MemoryStream(); WebSocketReceiveResult r;
+                do { r = ws.ReceiveAsync(new ArraySegment<byte>(buf), CancellationToken.None).Result; ms.Write(buf, 0, r.Count); } while (!r.EndOfMessage);
+                var d = ser.DeserializeObject(Encoding.UTF8.GetString(ms.ToArray())) as Dictionary<string, object>;
+                if (d != null && d.ContainsKey("id") && Convert.ToInt32(d["id"]) == my) return;
+            }
+        }
         public void Dispose() { if (ws != null) { try { ws.Dispose(); } catch { } } }
     }
 
@@ -197,7 +229,7 @@ if(best){var trs=best.querySelectorAll('tr'),hr=null;
  var fr=null;for(var a4=0;a4<trs.length;a4++){if(trs[a4]!==hr&&trs[a4].querySelectorAll('td').length>=4){fr=trs[a4];break;}}
  if(fr){var cl=[];var ft=fr.querySelectorAll('td');for(var z=0;z<ft.length;z++)cl.push(ft[z].className||'');cl.push('rownum');o.cols=cl;}
  for(var a3=0;a3<trs.length;a3++){if(trs[a3]===hr)continue;var tds=trs[a3].querySelectorAll('td');
-  if(tds.length<4)continue;var row=[];for(var q=0;q<tds.length;q++){var cc=tds[q].className||'',tt=tds[q].getAttribute('title');row.push((/td_(date|time|freq|call)/.test(cc)&&tt)?tt:tx(tds[q]));}row.push(trs[a3].getAttribute('data-rownum')||'');o.rows.push(row);}}
+  if(tds.length<4)continue;var row=[];for(var q=0;q<tds.length;q++){var cc=tds[q].className||'',tt=tds[q].getAttribute('title');row.push((/td_(date|time|freq|call|grid)/.test(cc)&&tt)?tt:tx(tds[q]));}row.push(trs[a3].getAttribute('data-rownum')||'');o.rows.push(row);}}
 return JSON.stringify(o);})()";
 
         public const string Next = @"(function(n){
@@ -221,7 +253,7 @@ return '';})(";
     // ---------- Fenêtre ----------
     class MainForm : Form
     {
-        TextBox txtOut, txtLog, txtKey, txtCall;
+        TextBox txtOut, txtLog, txtKey, txtCall, txtMyGrid; CheckBox chkRst;
         Button btnOpen, btnGo, btnApi, btnStop, btnDump, btnBrowse;
         Label lblState;
         ProgressBar bar;
@@ -261,13 +293,16 @@ return '';})(";
             btnApi = new Button { Left = 290, Top = 98, Width = 240, Height = 30, Text = "Récupérer via l'API" };
             t2.Controls.AddRange(new Control[] { h2, l1, txtKey, l2, txtCall, btnApi });
 
-            var pnl = new Panel { Dock = DockStyle.Top, Height = 80 };
+            var pnl = new Panel { Dock = DockStyle.Top, Height = 112 };
             var lo = new Label { Left = 10, Top = 12, Width = 120, Text = "Fichier ADIF :" };
             txtOut = new TextBox { Left = 130, Top = 8, Width = 480, Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "QRZ-journal.adi") };
             btnBrowse = new Button { Left = 620, Top = 6, Width = 110, Height = 28, Text = "Parcourir..." };
             btnStop = new Button { Left = 10, Top = 42, Width = 100, Height = 28, Text = "Arrêter", Enabled = false };
             bar = new ProgressBar { Left = 120, Top = 44, Width = 610, Height = 24 };
-            pnl.Controls.AddRange(new Control[] { lo, txtOut, btnBrowse, btnStop, bar });
+            chkRst = new CheckBox { Left = 10, Top = 78, Width = 470, Checked = true, Text = "Ajouter les rapports : 59/59 phonie, 599/599 CW, -01/-01 FT8/FT4/FT2" };
+            var lg = new Label { Left = 490, Top = 81, Width = 100, Text = "Mon locator :" };
+            txtMyGrid = new TextBox { Left = 590, Top = 77, Width = 140, MaxLength = 10 };
+            pnl.Controls.AddRange(new Control[] { lo, txtOut, btnBrowse, btnStop, bar, chkRst, lg, txtMyGrid });
             lblState = new Label { Dock = DockStyle.Top, Height = 24, Text = "Prêt.", Padding = new Padding(10, 3, 0, 0) };
             txtLog = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f) };
 
@@ -339,7 +374,7 @@ return '';})(";
             if (EdgeAlive()) { Log("Edge est déjà ouvert (fenêtre QRZ)."); return; }
             var l = new TcpListener(IPAddress.Loopback, 0); l.Start(); port = ((IPEndPoint)l.LocalEndpoint).Port; l.Stop();
             Directory.CreateDirectory(ProfileDir);
-            var psi = new ProcessStartInfo(FindEdge(), "--remote-debugging-port=" + port + " --remote-allow-origins=* --no-first-run --user-data-dir=\"" + ProfileDir + "\" \"" + url + "\"") { UseShellExecute = false };
+            var psi = new ProcessStartInfo(FindEdge(), "--remote-debugging-port=" + port + " --remote-allow-origins=* --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --no-first-run --user-data-dir=\"" + ProfileDir + "\" \"" + url + "\"") { UseShellExecute = false };
             edge = Process.Start(psi);
             for (int i = 0; i < 40; i++) { if (EdgeAlive()) { Log("Edge ouvert : connectez-vous à QRZ puis affichez votre journal."); return; } Thread.Sleep(250); }
             throw new Exception("Edge n'a pas répondu.");
@@ -358,6 +393,9 @@ return '';})(";
             }
             if (pick == null) throw new Exception("Aucun onglet Edge trouvé.");
             var c = new Cdp(); c.Connect((string)pick["webSocketDebuggerUrl"]);
+            // la page doit se croire visible et active, sinon Edge ralentit ou suspend ses chargements
+            try { c.Call("Page.bringToFront", null); } catch { }
+            try { c.Call("Emulation.setFocusEmulationEnabled", new Dictionary<string, object> { { "enabled", true } }); } catch { }
             return c;
         }
         PageData Extract(Cdp c)
@@ -471,6 +509,19 @@ return '';})(";
             return q;
         }
 
+        // Attend que la page soit completement affichee (meme nombre de lignes et memes lignes sur deux lectures)
+        PageData Settle(Cdp c, PageData p)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                Thread.Sleep(300);
+                PageData q; try { q = Extract(c); } catch { continue; }
+                if (q.rows.Count == p.rows.Count && Signature(q) == Signature(p)) return q;
+                p = q;
+            }
+            return p;
+        }
+
         string Signature(PageData p)
         {
             var sb = new StringBuilder(p.url + "#" + p.ipage);
@@ -535,8 +586,20 @@ return '';})(";
                         try { fp = Extract(c); } catch { continue; }
                         if (fp.ipage == "1" && fp.rows.Count > 0) break;
                     }
+                    if (fp == null || fp.ipage != "1")
+                    {
+                        Log("Page bloquee : rechargement du logbook...");
+                        try { c.Eval("location.href='https://logbook.qrz.com/'"); } catch { }
+                        t1 = DateTime.Now; fp = null;
+                        while ((DateTime.Now - t1).TotalSeconds < 40)
+                        {
+                            Thread.Sleep(800);
+                            try { fp = Extract(c); } catch { continue; }
+                            if (fp.rows.Count > 0 && (fp.ipage == "1" || fp.ipage == "")) { fp.ipage = "1"; break; }
+                        }
+                    }
                     if (fp == null || fp.ipage != "1") { Log("Impossible de revenir a la page 1."); return; }
-                    p = fp; Thread.Sleep(500);
+                    p = Settle(c, fp);
                 }
                 int page = 1;
                 while (!stop)
@@ -555,15 +618,24 @@ return '';})(";
                     string sig = Signature(p);
                     string clicked = c.Eval(Js.Next + (page + 1) + ")");
                     if (clicked == "") { Log("Pas de page suivante : fin."); break; }
-                    PageData np = null; DateTime t0 = DateTime.Now; bool changed = false;
-                    while ((DateTime.Now - t0).TotalSeconds < 30 && !stop)
+                    PageData np = null; bool changed = false;
+                    for (int attempt = 0; attempt < 4 && !changed && !stop; attempt++)
                     {
-                        Thread.Sleep(300);
-                        try { np = Extract(c); } catch { continue; }
-                        if (np.rows.Count > 0 && Signature(np) != sig && (np.ipage == "" || np.ipage == (page + 1).ToString())) { changed = true; break; }
+                        if (attempt > 0)
+                        {
+                            Log("QRZ n'a pas répondu à la page " + (page + 1) + " : nouvel essai " + attempt + "/3...");
+                            if (c.Eval(Js.Next + (page + 1) + ")") == "") break;
+                        }
+                        DateTime t0 = DateTime.Now;
+                        while ((DateTime.Now - t0).TotalSeconds < 45 && !stop)
+                        {
+                            Thread.Sleep(300);
+                            try { np = Extract(c); } catch { continue; }
+                            if (np.rows.Count > 0 && Signature(np) != sig && (np.ipage == "" || np.ipage == (page + 1).ToString())) { changed = true; break; }
+                        }
                     }
-                    if (!changed) { Log(stop ? "Arrêté." : "La page suivante ne s'est pas chargée (30 s) : fin."); break; }
-                    Thread.Sleep(300);
+                    if (!changed) { Log(stop ? "Arrêté." : "La page suivante ne s'est pas chargée après 4 essais : fin (le fichier contient les pages déjà lues)."); break; }
+                    np = Settle(c, np);
                     p = np; page++;
                     if (total > 0 && page > total + 2) break;
                 }
@@ -574,9 +646,19 @@ return '';})(";
         void Save(List<Dictionary<string, string>> qsos, bool quiet = false)
         {
             if (qsos.Count == 0) { Log("Aucun contact récupéré, fichier non créé."); return; }
+            string f = "", myGrid = ""; bool rst = true;
+            Invoke((Action)(() => { f = txtOut.Text; myGrid = txtMyGrid.Text.Trim(); rst = chkRst.Checked; }));
+            if (myGrid != "") foreach (var q in qsos) q["MY_GRIDSQUARE"] = myGrid;
+            if (rst)
+            {
+                var unk = Adif.ApplyReports(qsos);
+                if (!quiet)
+                {
+                    if (unk.Count == 0) Log("Rapports ajoutés : tous les modes étaient connus.");
+                    else Log("MODES SANS RAPPORT (non traités, à me signaler) : " + string.Join(", ", unk.OrderByDescending(k => k.Value).Select(k => k.Key + " (" + k.Value + ")").ToArray()));
+                }
+            }
             Adif.Sort(qsos);
-            string f = "";
-            Invoke((Action)(() => f = txtOut.Text));
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(f)));
             File.WriteAllText(f, Adif.Write(qsos), new UTF8Encoding(false));
             if (!quiet) Log("TERMINÉ : " + qsos.Count + " contacts, triés par date, dans " + f);
