@@ -26,12 +26,17 @@ QRZ n'offre pas toujours un export simple de tout le journal. Ce logiciel ouvre 
 
 **Méthode 2 — Clé API QRZ** (ADIF complet fourni par QRZ, avec RST, commentaires, etc.) : collez la clé du journal (QRZ > Logbook > Settings > API Access) et votre indicatif. *Cette méthode suit la documentation de l'API QRZ mais n'a pas encore été essayée sur un vrai compte.*
 
-## Champs exportés (méthode 1)
+## Période, reprise, vrais rapports
 
-Le tableau de QRZ ne contient que : date, heure (UTC), indicatif, fréquence, mode, locator, pays, nom. La **bande** est déduite de la fréquence. Les RST, QTH, commentaires et confirmations ne sont pas dans le tableau (utilisez la méthode 2 pour les avoir).
+- **Période** : cochez « du … au … » pour ne récupérer que certaines dates. L'application saute directement à la bonne page (recherche dichotomique) et s'arrête quand la période est dépassée.
+- **Reprise** : si le fichier de sortie existe déjà, l'application demande s'il faut le **compléter** (elle reprend à la date où le fichier s'arrête et n'ajoute que les contacts manquants, sans doublons) ou **recommencer** (l'ancien est gardé en `.bak`). Après un arrêt, une coupure ou un plantage, il suffit de relancer avec le même fichier.
+- **Vrais rapports** (case « Lire les VRAIS rapports ») : la liste de QRZ ne contient pas les RST (colonnes réservées aux abonnés), mais la fiche de chaque contact oui. L'application lit chaque fiche par une requête directe (aucun clic) et récupère **RST envoyé / reçu, QTH, commentaire, état, comté**. C'est lent (environ 1 contact par seconde) : à réserver à une période de dates, par exemple quelques milliers de contacts.
 
-- **Rapports** (case cochée par défaut, jamais appliqués à un contact qui en a déjà) : 59/59 en phonie (SSB, USB, LSB, AM, FM, FreeDV, D-STAR, C4FM, DMR), 599/599 en CW, -01/-01 en FT8, FT4 et FT2. Les autres modes (JT65, PSK31, RTTY, DATA…) restent sans rapport ; la liste est affichée à la fin de l'export.
-- **Mon locator** (facultatif) : ajouté à chaque contact dans `MY_GRIDSQUARE`. Le locator du correspondant (`GRIDSQUARE`) est exporté quand QRZ en a un.
+## Champs exportés
+
+La liste de QRZ contient : date, heure (UTC), indicatif, fréquence, mode, locator du correspondant, pays, nom. La **bande** est déduite de la fréquence. L'identifiant interne QRZ est écrit dans `APP_QRZLOG_LOGID`.
+
+- **Rapports par défaut** (case cochée par défaut ; seulement pour les contacts qui n'ont pas de rapport) selon le mode, d'après le fichier **`QRZLogExport-rapports.txt`** créé à côté de l'exe et modifiable : 59 en phonie, 599 en CW, -01 en FT8/FT4/FT2, 599 en RTTY/PSK31 et autres modes numériques classiques, -15 en JT65/JT9, -10 en JS8/FT8Call/ROS, 595 en SSTV. Ces valeurs sont conventionnelles (il n'existe pas de « moyenne » publiée). Un mode sans règle reste sans rapport ; la liste est affichée à la fin de l'export.
 - Les zéros barrés « Ø » de QRZ sont remplacés par des « 0 ».
 - Les accents sont convertis en ASCII (les alphabets non latins deviennent « ? »), pour une compatibilité maximale à l'import.
 
@@ -61,7 +66,7 @@ Le script utilise `csc.exe` (.NET Framework 4.x, présent sur tout Windows 10/11
 dist\QRZLogExport.exe --test file:///C:/chemin/tests/mock.html C:\temp\sortie.adi
 ```
 
-(`--test <url> <sortie.adi> [port=NNNN]` : ouvre Edge sur l'adresse, attend un tableau de contacts, exporte puis se ferme ; `port=` rattache à un Edge déjà lancé avec `--remote-debugging-port`.)
+(`--test <url> <sortie.adi> [port=NNNN] [from=AAAA-MM-JJ] [to=AAAA-MM-JJ] [real=1] [resume=1]` : ouvre Edge sur l'adresse, attend un tableau de contacts, exporte puis se ferme ; `port=` rattache à un Edge déjà lancé avec `--remote-debugging-port`.)
 
 ## Licence
 

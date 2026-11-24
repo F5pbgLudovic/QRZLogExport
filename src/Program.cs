@@ -22,6 +22,16 @@ namespace QRZLogExport
         [STAThread]
         static void Main(string[] args)
         {
+            // Utilitaire : QRZLogExport.exe --rapports entree.adi sortie.adi  (ajoute les rapports par defaut a un ADIF existant, sans interroger QRZ)
+            if (args.Length >= 3 && args[0] == "--rapports")
+            {
+                var l = Adif.Parse(File.ReadAllText(args[1], Encoding.UTF8));
+                var unk = Adif.ApplyReports(l);
+                Adif.Sort(l);
+                File.WriteAllText(args[2], Adif.Write(l), new UTF8Encoding(false));
+                File.WriteAllText(args[2] + ".log", l.Count + " contacts. Modes sans regle : " + (unk.Count == 0 ? "aucun" : string.Join(", ", unk.OrderByDescending(k => k.Value).Select(k => k.Key + " (" + k.Value + ")").ToArray())) + "\r\n");
+                return;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm(args));
@@ -53,7 +63,8 @@ namespace QRZLogExport
             sb.Append(Field("ADIF_VER", "3.1.4") + "\r\n" + Field("PROGRAMID", "QRZLogExport") + "\r\n" + Field("PROGRAMVERSION", Program.Version) + "\r\n<EOH>\r\n\r\n");
             foreach (var q in qsos)
             {
-                foreach (var kv in q) if (!string.IsNullOrEmpty(kv.Value) && !kv.Key.StartsWith("_")) sb.Append(Field(kv.Key, kv.Value));
+                foreach (var kv in q) if (!string.IsNullOrEmpty(kv.Value) && !kv.Key.StartsWith("_") && !(kv.Key == "APP_QRZLOG_LOGID" && q.ContainsKey("_ID"))) sb.Append(Field(kv.Key, kv.Value));
+                string lid; if (q.TryGetValue("_ID", out lid) && lid != "") sb.Append(Field("APP_QRZLOG_LOGID", lid));
                 sb.Append("<EOR>\r\n");
             }
             return sb.ToString();
@@ -91,22 +102,89 @@ namespace QRZLogExport
             var s = l.Select((q, i) => new { q, i, k = key(q) }).OrderBy(x => x.k, StringComparer.Ordinal).ThenBy(x => x.i).Select(x => x.q).ToList();
             l.Clear(); l.AddRange(s);
         }
-        static readonly HashSet<string> PhoneModes = new HashSet<string> { "SSB", "USB", "LSB", "AM", "FM", "FREEDV", "DSTAR", "C4FM", "DMR", "DIGITALVOICE", "DV", "PHONE" };
-        static readonly HashSet<string> CwModes = new HashSet<string> { "CW" };
-        static readonly HashSet<string> FtModes = new HashSet<string> { "FT8", "FT4", "FT2" };
+        // ---- Rapports par defaut selon le mode (fichier QRZLogExport-rapports.txt a cote de l'exe, modifiable) ----
+        public const string RulesFileName = "QRZLogExport-rapports.txt";
+        const string DefaultRules =
+            "# Rapports par defaut (emission = reception) ajoutes aux contacts qui n'en ont pas.\r\n" +
+            "# Format : MODE=rapport   (une ligne par mode, MODE en majuscules). Lignes commencant par # = commentaires.\r\n" +
+            "# Modifiez librement ce fichier, puis relancez l'export. Un mode absent = aucun rapport ajoute.\r\n" +
+            "#\r\n" +
+            "# --- Phonie : 59 ---\r\n" +
+            "SSB=59\r\nUSB=59\r\nLSB=59\r\nAM=59\r\nFM=59\r\nFREEDV=59\r\nDSTAR=59\r\nC4FM=59\r\nDMR=59\r\nDIGITALVOICE=59\r\nDV=59\r\nECHOLINK=59\r\nVOI=59\r\n" +
+            "# --- Morse : 599 ---\r\n" +
+            "CW=599\r\n" +
+            "# --- FT8 / FT4 / FT2 : -01 (valeur choisie par l'utilisateur) ---\r\n" +
+            "FT8=-01\r\nFT4=-01\r\nFT2=-01\r\n" +
+            "# --- Modes numeriques a reports RST classiques : 599 (valeur courante en RTTY et PSK31) ---\r\n" +
+            "RTTY=599\r\nPSK31=599\r\nPSK63=599\r\nPSK125=599\r\nSIM31=599\r\nDATA=599\r\nPKT=599\r\nPACKET=599\r\nMFSK=599\r\nOLIVIA=599\r\nCONTESTIA=599\r\nCONTESTI=599\r\nHELL=599\r\nTHOR=599\r\nDOMINO=599\r\nVARA=599\r\nVARA HF=599\r\n" +
+            "# --- Modes faibles signaux a rapport en dB (milieu de la plage habituelle) ---\r\n" +
+            "JT65=-15\r\nJT65A=-15\r\nJT9=-15\r\nJT4=-15\r\nQ65=-15\r\nFST4=-15\r\nJS8=-10\r\nFT8CALL=-10\r\nROS=-10\r\n" +
+            "# --- Images : RSV 595 (exemple de reference du manuel SSTV) ---\r\n" +
+            "SSTV=595\r\nFAX=595\r\n";
+        static Dictionary<string, string> rules;
+        static Dictionary<string, string> Rules
+        {
+            get
+            {
+                if (rules != null) return rules;
+                string f = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, RulesFileName);
+                try { if (!File.Exists(f)) File.WriteAllText(f, DefaultRules, new UTF8Encoding(false)); } catch { }
+                string txt = DefaultRules;
+                try { if (File.Exists(f)) txt = File.ReadAllText(f, Encoding.UTF8); } catch { }
+                rules = new Dictionary<string, string>();
+                foreach (var line in txt.Split('\n'))
+                {
+                    string l = line.Trim(); if (l.Length == 0 || l[0] == '#') continue;
+                    int i = l.IndexOf('='); if (i <= 0) continue;
+                    rules[l.Substring(0, i).Trim().ToUpperInvariant()] = l.Substring(i + 1).Trim();
+                }
+                return rules;
+            }
+        }
         // Rapports par defaut (seulement si le contact n'en a pas). Retourne les modes sans regle -> nombre de contacts.
         public static Dictionary<string, int> ApplyReports(List<Dictionary<string, string>> qsos)
         {
             var unknown = new Dictionary<string, int>();
             foreach (var q in qsos)
             {
-                if (q.ContainsKey("RST_SENT") || q.ContainsKey("RST_RCVD")) continue;
+                if (q.ContainsKey("RST_SENT") && q.ContainsKey("RST_RCVD")) continue;
                 string m; q.TryGetValue("MODE", out m); m = (m ?? "").ToUpperInvariant();
-                string r = PhoneModes.Contains(m) ? "59" : CwModes.Contains(m) ? "599" : FtModes.Contains(m) ? "-01" : null;
-                if (r == null) { string k = m == "" ? "(vide)" : m; int n; unknown.TryGetValue(k, out n); unknown[k] = n + 1; continue; }
-                q["RST_SENT"] = r; q["RST_RCVD"] = r;
+                string r; if (!Rules.TryGetValue(m, out r) || r == "") { string k = m == "" ? "(vide)" : m; int n; unknown.TryGetValue(k, out n); unknown[k] = n + 1; continue; }
+                if (!q.ContainsKey("RST_SENT")) q["RST_SENT"] = r;
+                if (!q.ContainsKey("RST_RCVD")) q["RST_RCVD"] = r;
             }
             return unknown;
+        }
+        // Suivi des contacts deja lus : par identifiant QRZ, ou (anciens fichiers sans identifiant) par contenu avec decompte
+        public class Seen
+        {
+            readonly HashSet<string> ids = new HashSet<string>();
+            readonly Dictionary<string, int> legacy = new Dictionary<string, int>();
+            public void AddExisting(Dictionary<string, string> q)
+            {
+                string id;
+                if (q.TryGetValue("_ID", out id) && id != "") ids.Add(id);
+                else { string k = ContentKey(q); int n; legacy.TryGetValue(k, out n); legacy[k] = n + 1; }
+            }
+            public bool IsNew(Dictionary<string, string> q)
+            {
+                string id; int n;
+                if (q.TryGetValue("_ID", out id) && id != "")
+                {
+                    if (ids.Contains(id)) return false;
+                    string k = ContentKey(q);
+                    if (legacy.TryGetValue(k, out n) && n > 0) { legacy[k] = n - 1; ids.Add(id); return false; }
+                    ids.Add(id); return true;
+                }
+                string c = ContentKey(q);
+                if (legacy.TryGetValue(c, out n) && n > 0) { legacy[c] = n - 1; return false; }
+                return ids.Add("c" + c);
+            }
+        }
+        public static string ContentKey(Dictionary<string, string> q)
+        {
+            string[] ks = { "CALL", "QSO_DATE", "TIME_ON", "BAND", "MODE", "FREQ" };
+            return string.Join("|", ks.Select(k => { string v; return q.TryGetValue(k, out v) ? v : ""; }).ToArray());
         }
         public static string DedupKey(Dictionary<string, string> q)
         {
@@ -227,10 +305,19 @@ if(best){var trs=best.querySelectorAll('tr'),hr=null;
  if(!hr){for(var a2=0;a2<trs.length;a2++){if(trs[a2].children.length>=4){hr=trs[a2];break;}}}
  if(hr){var hc=hr.children;for(var h=0;h<hc.length;h++)o.headers.push(tx(hc[h]));}
  var fr=null;for(var a4=0;a4<trs.length;a4++){if(trs[a4]!==hr&&trs[a4].querySelectorAll('td').length>=4){fr=trs[a4];break;}}
- if(fr){var cl=[];var ft=fr.querySelectorAll('td');for(var z=0;z<ft.length;z++)cl.push(ft[z].className||'');cl.push('rownum');o.cols=cl;}
+ if(fr){var cl=[];var ft=fr.querySelectorAll('td');for(var z=0;z<ft.length;z++)cl.push(ft[z].className||'');cl.push('rownum');cl.push('rowpos');cl.push('rowbook');o.cols=cl;}
  for(var a3=0;a3<trs.length;a3++){if(trs[a3]===hr)continue;var tds=trs[a3].querySelectorAll('td');
-  if(tds.length<4)continue;var row=[];for(var q=0;q<tds.length;q++){var cc=tds[q].className||'',tt=tds[q].getAttribute('title');row.push((/td_(date|time|freq|call|grid)/.test(cc)&&tt)?tt:tx(tds[q]));}row.push(trs[a3].getAttribute('data-rownum')||'');o.rows.push(row);}}
+  if(tds.length<4)continue;var row=[];for(var q=0;q<tds.length;q++){var cc=tds[q].className||'',tt=tds[q].getAttribute('title');row.push((/td_(date|time|freq|call|grid)/.test(cc)&&tt)?tt:tx(tds[q]));}row.push(trs[a3].getAttribute('data-rownum')||'');row.push(trs[a3].getAttribute('data-pos')||'');row.push(trs[a3].getAttribute('data-bookid')||'');o.rows.push(row);}}
 return JSON.stringify(o);})()";
+
+        // Fiche detaillee de chaque contact (requete directe du formulaire de la liste, 4 a la fois)
+        public const string Detail = @"(async function(items){var f=document.getElementById('lbmenu');var res=[];var i=0;
+function lab(tb,l){var e=[].filter.call(tb.querySelectorAll('th,td'),function(x){return x.textContent.replace(/\s+/g,' ').trim()===l;})[0];return e&&e.nextElementSibling?e.nextElementSibling.textContent.replace(/\s+/g,' ').trim():'';}
+async function w(){while(i<items.length){var it=items[i++];try{var fd=new FormData(f);fd.set('logid',it.id);fd.set('logpos',it.pos);fd.set('bookid',it.book);
+var r=await fetch(f.action,{method:'POST',body:new URLSearchParams(fd),credentials:'include'});var h=await r.text();var d=new DOMParser().parseFromString(h,'text/html');
+var th=[].filter.call(d.querySelectorAll('th'),function(x){return x.textContent.trim()==='Station';})[0];if(!th){res.push({id:it.id,err:1});continue;}var tb=th.closest('table');
+res.push({id:it.id,rr:lab(tb,'RST Rcvd'),rs:lab(tb,'RST Sent'),qth:lab(tb,'QTH'),st:lab(tb,'State'),cy:lab(tb,'County'),cm:lab(tb,'Comments')});}catch(e){res.push({id:it.id,err:1});}}}
+await Promise.all([w(),w(),w(),w()]);return JSON.stringify(res);})(";
 
         public const string Next = @"(function(n){
 function tx(e){return (e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();}
@@ -253,7 +340,7 @@ return '';})(";
     // ---------- Fenêtre ----------
     class MainForm : Form
     {
-        TextBox txtOut, txtLog, txtKey, txtCall, txtMyGrid; CheckBox chkRst;
+        TextBox txtOut, txtLog, txtKey, txtCall; CheckBox chkRst, chkReal; DateTimePicker dtpFrom, dtpTo;
         Button btnOpen, btnGo, btnApi, btnStop, btnDump, btnBrowse;
         Label lblState;
         ProgressBar bar;
@@ -267,7 +354,7 @@ return '';})(";
         public MainForm(string[] args)
         {
             Text = "QRZLogExport V" + Program.Version + " @F5PBG 2026";
-            Width = 780; Height = 640; StartPosition = FormStartPosition.CenterScreen; MinimumSize = new Size(640, 520);
+            Width = 780; Height = 720; StartPosition = FormStartPosition.CenterScreen; MinimumSize = new Size(640, 520);
             Font = new Font("Segoe UI", 9.5f);
 
             tabs = new TabControl { Dock = DockStyle.Top, Height = 210 };
@@ -293,16 +380,20 @@ return '';})(";
             btnApi = new Button { Left = 290, Top = 98, Width = 240, Height = 30, Text = "Récupérer via l'API" };
             t2.Controls.AddRange(new Control[] { h2, l1, txtKey, l2, txtCall, btnApi });
 
-            var pnl = new Panel { Dock = DockStyle.Top, Height = 112 };
+            var pnl = new Panel { Dock = DockStyle.Top, Height = 168 };
             var lo = new Label { Left = 10, Top = 12, Width = 120, Text = "Fichier ADIF :" };
             txtOut = new TextBox { Left = 130, Top = 8, Width = 480, Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "QRZ-journal.adi") };
             btnBrowse = new Button { Left = 620, Top = 6, Width = 110, Height = 28, Text = "Parcourir..." };
             btnStop = new Button { Left = 10, Top = 42, Width = 100, Height = 28, Text = "Arrêter", Enabled = false };
             bar = new ProgressBar { Left = 120, Top = 44, Width = 610, Height = 24 };
-            chkRst = new CheckBox { Left = 10, Top = 78, Width = 470, Checked = true, Text = "Ajouter les rapports : 59/59 phonie, 599/599 CW, -01/-01 FT8/FT4/FT2" };
-            var lg = new Label { Left = 490, Top = 81, Width = 100, Text = "Mon locator :" };
-            txtMyGrid = new TextBox { Left = 590, Top = 77, Width = 140, MaxLength = 10 };
-            pnl.Controls.AddRange(new Control[] { lo, txtOut, btnBrowse, btnStop, bar, chkRst, lg, txtMyGrid });
+            chkRst = new CheckBox { Left = 10, Top = 76, Width = 720, Checked = true, Text = "Ajouter un rapport par défaut selon le mode aux contacts qui n'en ont pas (règles : " + Adif.RulesFileName + ")" };
+            var lp = new Label { Left = 10, Top = 108, Width = 70, Text = "Période :" };
+            dtpFrom = new DateTimePicker { Left = 85, Top = 104, Width = 150, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
+            var lp2 = new Label { Left = 243, Top = 108, Width = 22, Text = "au" };
+            dtpTo = new DateTimePicker { Left = 268, Top = 104, Width = 150, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
+            var lp3 = new Label { Left = 425, Top = 108, Width = 310, Text = "(cases décochées = tout le journal)" };
+            chkReal = new CheckBox { Left = 10, Top = 136, Width = 720, Text = "Lire les VRAIS rapports (fiche de chaque contact : lent, environ 1 contact/seconde ; à réserver à une période)" };
+            pnl.Controls.AddRange(new Control[] { lo, txtOut, btnBrowse, btnStop, bar, chkRst, lp, dtpFrom, lp2, dtpTo, lp3, chkReal });
             lblState = new Label { Dock = DockStyle.Top, Height = 24, Text = "Prêt.", Padding = new Padding(10, 3, 0, 0) };
             txtLog = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f) };
 
@@ -310,7 +401,30 @@ return '';})(";
 
             btnBrowse.Click += (s, e) => { using (var d = new SaveFileDialog { Filter = "ADIF (*.adi;*.adif)|*.adi;*.adif", FileName = Path.GetFileName(txtOut.Text), DefaultExt = "adi" }) if (d.ShowDialog() == DialogResult.OK) txtOut.Text = d.FileName; };
             btnOpen.Click += (s, e) => { try { OpenEdge("https://logbook.qrz.com/"); } catch (Exception ex) { Log("ERREUR : " + ex.Message); } };
-            btnGo.Click += (s, e) => Start(RunWeb);
+            btnGo.Click += (s, e) =>
+            {
+                resumeChoice = false;
+                string f = txtOut.Text;
+                if (File.Exists(f) && new FileInfo(f).Length > 200)
+                {
+                    string info = "";
+                    try
+                    {
+                        var old = Adif.Parse(File.ReadAllText(f, Encoding.UTF8));
+                        string mn = "99999999", mx = "";
+                        foreach (var q in old) { string dd = DateOf(q); if (dd != "") { if (string.CompareOrdinal(dd, mn) < 0) mn = dd; if (string.CompareOrdinal(dd, mx) > 0) mx = dd; } }
+                        info = old.Count + " contacts, du " + mn + " au " + mx + ".\r\n\r\n";
+                    }
+                    catch { }
+                    var r = MessageBox.Show(this, "Le fichier existe déjà :\r\n" + f + "\r\n" + info +
+                        "OUI = COMPLÉTER ce fichier (reprise à partir de la date où il s'arrête, sans doublons)\r\n" +
+                        "NON = RECOMMENCER (l'ancien fichier est conservé en .bak)\r\nANNULER = ne rien faire",
+                        "Fichier existant", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    if (r == DialogResult.Cancel) return;
+                    resumeChoice = r == DialogResult.Yes;
+                }
+                Start(RunWeb);
+            };
             btnApi.Click += (s, e) => Start(RunApi);
             btnDump.Click += (s, e) => Start(RunDump);
             btnStop.Click += (s, e) => { stop = true; Log("Arrêt demandé..."); };
@@ -319,6 +433,14 @@ return '';})(";
             if (args.Length >= 3 && args[0] == "--test")
             {
                 txtOut.Text = args[2]; testLog = args[2] + ".log";
+                for (int ai = 3; ai < args.Length; ai++)
+                {
+                    string a = args[ai];
+                    if (a.StartsWith("from=")) testFrom = a.Substring(5).Replace("-", "");
+                    else if (a.StartsWith("to=")) testTo = a.Substring(3).Replace("-", "");
+                    else if (a == "real=1") testReal = true;
+                    else if (a == "resume=1") testResume = true;
+                }
                 Shown += (s, e) => { try { if (args.Length >= 4 && args[3].StartsWith("port=")) port = int.Parse(args[3].Substring(5)); else OpenEdge(args[1]); } catch (Exception ex) { Log("ERREUR : " + ex.Message); return; } Start(() => { WaitForTable(); RunWeb(); Invoke((Action)Close); }); };
             }
             FormClosing += (s, e) => { stop = true; };
@@ -427,6 +549,8 @@ return '';})(";
             {
                 string c = cols[i].ToLowerInvariant(), f = "";
                 if (c == "rownum") f = "_ID";
+                else if (c == "rowpos") f = "_POS";
+                else if (c == "rowbook") f = "_BOOK";
                 else if (c.Contains("td_date")) f = "QSO_DATE";
                 else if (c.Contains("td_time")) f = "TIME_ON";
                 else if (c.Contains("td_call")) f = "CALL";
@@ -562,59 +686,180 @@ return '';})(";
             }
         }
 
+        // ---------- Options d'une recuperation ----------
+        class Opts { public string from = "", to = "", file = ""; public bool real, resume, defRst = true; }
+        bool resumeChoice, bakDone; string testFrom = "", testTo = ""; bool testReal, testResume;
+        Opts ReadOpts()
+        {
+            var o = new Opts();
+            if (testLog != null) { o.from = testFrom; o.to = testTo; o.real = testReal; o.resume = testResume; o.file = txtOut.Text; o.defRst = chkRst.Checked; return o; }
+            o.from = dtpFrom.Checked ? dtpFrom.Value.ToString("yyyyMMdd") : "";
+            o.to = dtpTo.Checked ? dtpTo.Value.ToString("yyyyMMdd") : "";
+            o.real = chkReal.Checked; o.resume = resumeChoice; o.file = txtOut.Text; o.defRst = chkRst.Checked;
+            return o;
+        }
+        static string DateOf(Dictionary<string, string> q) { string d; return q != null && q.TryGetValue("QSO_DATE", out d) ? d : ""; }
+        // dates (yyyyMMdd) de la 1re et de la derniere ligne datee d'une page
+        void PageDates(PageData p, string[] map, out string first, out string last)
+        {
+            first = ""; last = "";
+            foreach (var r in p.rows) { var q = RowToQso(map, r); string d = DateOf(q); if (d == "") continue; if (first == "") first = d; last = d; }
+        }
+        static string RowSig(PageData p)
+        {
+            var sb = new StringBuilder("" + p.rows.Count);
+            for (int i = 0; i < Math.Min(3, p.rows.Count); i++) sb.Append("|" + string.Join(";", p.rows[i].ToArray()));
+            if (p.rows.Count > 0) sb.Append("|" + string.Join(";", p.rows[p.rows.Count - 1].ToArray()));
+            return sb.ToString();
+        }
+        // Va directement a la page n (la liste QRZ se recharge en AJAX). Recharge le logbook si QRZ ne repond pas.
+        PageData GotoPage(Cdp c, int n, PageData cur)
+        {
+            string before = cur == null ? "" : RowSig(cur);
+            for (int round = 0; round < 2 && !stop; round++)
+            {
+                for (int attempt = 0; attempt < 3 && !stop; attempt++)
+                {
+                    if (attempt > 0) Log("QRZ n'a pas répondu (page " + n + ") : nouvel essai " + attempt + "/2...");
+                    try { c.Eval("jQuery('#ipage').val(" + n + ");goto('page',true);"); } catch { }
+                    DateTime t0 = DateTime.Now; PageData q = null;
+                    while ((DateTime.Now - t0).TotalSeconds < 45 && !stop)
+                    {
+                        Thread.Sleep(400);
+                        try { q = Extract(c); } catch { continue; }
+                        if (q.ipage == n.ToString() && q.rows.Count > 0 && (before == "" || RowSig(q) != before)) return Settle(c, q);
+                    }
+                }
+                Log("Page bloquée : rechargement du logbook...");
+                try { c.Eval("location.href='https://logbook.qrz.com/'"); } catch { }
+                DateTime t1 = DateTime.Now; PageData f = null;
+                while ((DateTime.Now - t1).TotalSeconds < 40 && !stop)
+                {
+                    Thread.Sleep(800);
+                    try { f = Extract(c); } catch { continue; }
+                    if (f.rows.Count > 0 && (f.ipage == "1" || f.ipage == "")) { f.ipage = "1"; f = Settle(c, f); if (n == 1) return f; before = RowSig(f); break; }
+                }
+            }
+            return null;
+        }
+        // Recherche dichotomique : plus petite page dont la derniere ligne atteint la borne (desc : date <= borne ; sinon date >= borne)
+        int FindStartPage(Cdp c, string[] map, int total, bool desc, string bound, ref PageData cur, ref int curPage)
+        {
+            int lo = 1, hi = total;
+            while (lo < hi && !stop)
+            {
+                int mid = (lo + hi) / 2;
+                var p = GotoPage(c, mid, cur); if (p == null) return -1;
+                cur = p; curPage = mid;
+                string f, l; PageDates(p, map, out f, out l);
+                bool ok = l != "" && (desc ? string.CompareOrdinal(l, bound) <= 0 : string.CompareOrdinal(l, bound) >= 0);
+                Log("  recherche du " + bound + " : page " + mid + " (" + f + " ... " + l + ")");
+                if (ok) hi = mid; else lo = mid + 1;
+            }
+            return lo;
+        }
+        // Lit la fiche de chaque contact (rapports reels, QTH, commentaire...) par requete directe, 4 a la fois
+        void FetchDetails(Cdp c, List<Dictionary<string, string>> fresh)
+        {
+            var byId = new Dictionary<string, Dictionary<string, string>>();
+            var items = new List<Dictionary<string, object>>();
+            foreach (var q in fresh)
+            {
+                string id, pos, book; if (!q.TryGetValue("_ID", out id) || id == "") continue;
+                q.TryGetValue("_POS", out pos); q.TryGetValue("_BOOK", out book);
+                byId[id] = q; items.Add(new Dictionary<string, object> { { "id", id }, { "pos", pos ?? "0" }, { "book", book ?? "" } });
+            }
+            if (items.Count == 0) return;
+            string res = c.Eval(Js.Detail + ser.Serialize(items) + ")");
+            int bad = 0, noRst = 0;
+            foreach (Dictionary<string, object> d in (System.Collections.IEnumerable)ser.DeserializeObject(res))
+            {
+                Dictionary<string, string> q; if (!byId.TryGetValue(Convert.ToString(d["id"]), out q)) continue;
+                if (d.ContainsKey("err")) { bad++; continue; }
+                Func<string, string> g = k => d.ContainsKey(k) ? Convert.ToString(d[k]).Trim() : "";
+                Func<string, bool> rstOk = v => Regex.IsMatch(v, @"^[+-]?\d{1,3}$");
+                if (rstOk(g("rs"))) q["RST_SENT"] = g("rs"); else noRst++;
+                if (rstOk(g("rr"))) q["RST_RCVD"] = g("rr");
+                if (g("qth") != "" && !q.ContainsKey("QTH")) q["QTH"] = g("qth");
+                if (g("st") != "" && !q.ContainsKey("STATE")) q["STATE"] = g("st");
+                if (g("cy") != "" && !q.ContainsKey("CNTY")) q["CNTY"] = g("cy");
+                if (g("cm") != "") q["COMMENT"] = g("cm");
+            }
+            if (bad > 0) Log("  " + bad + " fiche(s) illisible(s) : rapport par défaut utilisé pour elles.");
+        }
+
         void RunWeb()
         {
+            Opts o = null; Invoke((Action)(() => o = ReadOpts())); bakDone = false;
             using (var c = Attach())
             {
                 var qsos = new List<Dictionary<string, string>>();
-                var seen = new HashSet<string>();
+                var seen = new Adif.Seen();
                 var p = Extract(c);
                 if (p.login && !p.table) { Log("La page demande un mot de passe : connectez-vous dans Edge, affichez votre journal, puis recommencez."); return; }
                 if (!p.table || p.rows.Count == 0) { Log("Aucun tableau de contacts sur cette page (" + p.url + "). Affichez la liste de vos contacts dans Edge. Au besoin, utilisez 'Enregistrer la page (diagnostic)'."); return; }
                 int total = p.pages;
-                Log("Première page : " + p.rows.Count + " lignes, " + (total > 0 ? total + " pages annoncées." : "nombre de pages inconnu (parcours jusqu'à la dernière).") + "  Colonnes : " + string.Join(" | ", p.headers.ToArray()));
                 var map = MapCols(p.cols, p.headers);
                 if (!map.Contains("CALL")) { Log("Colonne d'indicatif non reconnue dans : " + string.Join(" | ", p.headers.ToArray()) + ". Utilisez 'Enregistrer la page (diagnostic)'."); return; }
-                if (p.ipage != "" && p.ipage != "1")
+                int curPage; if (!int.TryParse(p.ipage, out curPage) || curPage <= 0) curPage = 1;
+                string d1, d2; PageDates(p, map, out d1, out d2);
+                bool desc = string.CompareOrdinal(d1, d2) >= 0;
+                Log("Liste QRZ : " + p.rows.Count + " lignes par page, " + (total > 0 ? total + " pages" : "nombre de pages inconnu") + ", ordre " + (desc ? "du plus récent au plus ancien" : "du plus ancien au plus récent") + (o.from != "" || o.to != "" ? ". Période : " + (o.from == "" ? "début" : o.from) + " -> " + (o.to == "" ? "fin" : o.to) : "") + (o.real ? ". Rapports RÉELS demandés (lent)." : "."));
+
+                // reprise d'un fichier existant
+                string resumeBound = "";
+                if (o.resume && File.Exists(o.file))
                 {
-                    Log("Retour a la premiere page (affichee : " + p.ipage + ")...");
-                    c.Eval("goto('first',true)");
-                    DateTime t1 = DateTime.Now; PageData fp = null;
-                    while ((DateTime.Now - t1).TotalSeconds < 30)
+                    var old = Adif.Parse(File.ReadAllText(o.file, Encoding.UTF8));
+                    string mn = "99999999", mx = "";
+                    foreach (var q in old)
                     {
-                        Thread.Sleep(400);
-                        try { fp = Extract(c); } catch { continue; }
-                        if (fp.ipage == "1" && fp.rows.Count > 0) break;
+                        string lid; if (q.TryGetValue("APP_QRZLOG_LOGID", out lid)) { q["_ID"] = lid; q.Remove("APP_QRZLOG_LOGID"); }
+                        seen.AddExisting(q); qsos.Add(q);
+                        string dd = DateOf(q); if (dd != "") { if (string.CompareOrdinal(dd, mn) < 0) mn = dd; if (string.CompareOrdinal(dd, mx) > 0) mx = dd; }
                     }
-                    if (fp == null || fp.ipage != "1")
-                    {
-                        Log("Page bloquee : rechargement du logbook...");
-                        try { c.Eval("location.href='https://logbook.qrz.com/'"); } catch { }
-                        t1 = DateTime.Now; fp = null;
-                        while ((DateTime.Now - t1).TotalSeconds < 40)
-                        {
-                            Thread.Sleep(800);
-                            try { fp = Extract(c); } catch { continue; }
-                            if (fp.rows.Count > 0 && (fp.ipage == "1" || fp.ipage == "")) { fp.ipage = "1"; break; }
-                        }
-                    }
-                    if (fp == null || fp.ipage != "1") { Log("Impossible de revenir a la page 1."); return; }
-                    p = Settle(c, fp);
+                    resumeBound = desc ? mn : mx; if (mx == "") resumeBound = "";
+                    Log("REPRISE : " + old.Count + " contacts déjà dans le fichier (du " + (mx == "" ? "?" : mn) + " au " + mx + "). On continue à partir du " + resumeBound + ".");
                 }
-                int page = 1;
+
+                // page de depart
+                string startBound = "";
+                if (desc) { startBound = o.to; if (resumeBound != "" && (startBound == "" || string.CompareOrdinal(resumeBound, startBound) < 0)) startBound = resumeBound; }
+                else { startBound = o.from; if (resumeBound != "" && (startBound == "" || string.CompareOrdinal(resumeBound, startBound) > 0)) startBound = resumeBound; }
+                int startPage = 1;
+                if (startBound != "" && total > 1) { startPage = FindStartPage(c, map, total, desc, startBound, ref p, ref curPage); if (startPage < 0) { Log("Recherche de la page de départ impossible."); return; } }
+                if (curPage != startPage || p == null)
+                {
+                    var sp = GotoPage(c, startPage, p); if (sp == null) { Log(stop ? "Arrêté." : "Impossible d'atteindre la page " + startPage + "."); return; }
+                    p = sp;
+                }
+                int page = startPage; int firstPage = startPage;
+                if (startPage > 1) Log("Départ à la page " + startPage + ".");
+
                 while (!stop)
                 {
-                    int added = 0;
+                    string pf, pl; PageDates(p, map, out pf, out pl);
+                    var fresh = new List<Dictionary<string, string>>();
                     foreach (var r in p.rows)
                     {
                         var q = RowToQso(map, r); if (q == null) continue;
-                        if (seen.Add(Adif.DedupKey(q))) { qsos.Add(q); added++; }
+                        string dd = DateOf(q);
+                        if (o.from != "" && dd != "" && string.CompareOrdinal(dd, o.from) < 0) continue;
+                        if (o.to != "" && dd != "" && string.CompareOrdinal(dd, o.to) > 0) continue;
+                        if (seen.IsNew(q)) fresh.Add(q);
                     }
-                    Log("Page " + page + (total > 0 ? "/" + total : "") + " : " + added + " nouveaux contacts (total " + qsos.Count + ")");
+                    if (o.real && fresh.Count > 0 && !stop) FetchDetails(c, fresh);
+                    qsos.AddRange(fresh);
+                    Log("Page " + page + (total > 0 ? "/" + total : "") + " (" + pf + " ... " + pl + ") : " + fresh.Count + " nouveaux contacts (total " + qsos.Count + ")");
                     Prog(page, total > 0 ? total : page + 1);
-                    if (page % 100 == 0) Save(qsos, true);   // sauvegarde intermediaire
-                    if (total > 0 && page >= total) break;
-                    if (added == 0 && page > 1) { Log("Plus de nouveaux contacts : fin."); break; }
+                    if ((page - firstPage + 1) % (o.real ? 5 : 100) == 0) Save(qsos, true, o.defRst);   // sauvegarde intermediaire
+                    bool done = total > 0 && page >= total;
+                    if (!done && pl != "")
+                    {
+                        if (desc && o.from != "" && string.CompareOrdinal(pl, o.from) < 0) done = true;
+                        if (!desc && o.to != "" && string.CompareOrdinal(pl, o.to) > 0) done = true;
+                    }
+                    if (done) break;
                     string sig = Signature(p);
                     string clicked = c.Eval(Js.Next + (page + 1) + ")");
                     if (clicked == "") { Log("Pas de page suivante : fin."); break; }
@@ -634,33 +879,36 @@ return '';})(";
                             if (np.rows.Count > 0 && Signature(np) != sig && (np.ipage == "" || np.ipage == (page + 1).ToString())) { changed = true; break; }
                         }
                     }
-                    if (!changed) { Log(stop ? "Arrêté." : "La page suivante ne s'est pas chargée après 4 essais : fin (le fichier contient les pages déjà lues)."); break; }
+                    if (!changed) { Log(stop ? "Arrêté." : "La page suivante ne s'est pas chargée après 4 essais : fin (le fichier contient les pages déjà lues ; relancez pour reprendre)."); break; }
                     np = Settle(c, np);
                     p = np; page++;
                     if (total > 0 && page > total + 2) break;
                 }
-                Save(qsos);
+                Save(qsos, false, o.defRst);
             }
         }
 
-        void Save(List<Dictionary<string, string>> qsos, bool quiet = false)
+        void Save(List<Dictionary<string, string>> qsos, bool quiet, bool defRst)
         {
-            if (qsos.Count == 0) { Log("Aucun contact récupéré, fichier non créé."); return; }
-            string f = "", myGrid = ""; bool rst = true;
-            Invoke((Action)(() => { f = txtOut.Text; myGrid = txtMyGrid.Text.Trim(); rst = chkRst.Checked; }));
-            if (myGrid != "") foreach (var q in qsos) q["MY_GRIDSQUARE"] = myGrid;
-            if (rst)
+            string f = "";
+            Invoke((Action)(() => f = txtOut.Text));
+            if (qsos.Count == 0) { if (!quiet) Log("Aucun contact récupéré, fichier non modifié."); return; }
+            if (defRst)
             {
                 var unk = Adif.ApplyReports(qsos);
                 if (!quiet)
                 {
-                    if (unk.Count == 0) Log("Rapports ajoutés : tous les modes étaient connus.");
-                    else Log("MODES SANS RAPPORT (non traités, à me signaler) : " + string.Join(", ", unk.OrderByDescending(k => k.Value).Select(k => k.Key + " (" + k.Value + ")").ToArray()));
+                    if (unk.Count == 0) Log("Rapports par défaut : tous les modes avaient une règle.");
+                    else Log("MODES SANS RAPPORT (pas de règle dans " + Adif.RulesFileName + ") : " + string.Join(", ", unk.OrderByDescending(k => k.Value).Select(k => k.Key + " (" + k.Value + ")").ToArray()));
                 }
             }
             Adif.Sort(qsos);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(f)));
-            File.WriteAllText(f, Adif.Write(qsos), new UTF8Encoding(false));
+            if (!bakDone && File.Exists(f)) { try { File.Copy(f, f + ".bak", true); } catch { } bakDone = true; }
+            string tmp = f + ".tmp";
+            File.WriteAllText(tmp, Adif.Write(qsos), new UTF8Encoding(false));
+            if (File.Exists(f)) File.Delete(f);
+            File.Move(tmp, f);
             if (!quiet) Log("TERMINÉ : " + qsos.Count + " contacts, triés par date, dans " + f);
         }
 
@@ -713,7 +961,7 @@ return '';})(";
                 if (recs.Count == 0 || added == 0 || mx <= after) break;
                 after = mx;
             }
-            Save(qsos);
+            bool dr = true; Invoke((Action)(() => dr = chkRst.Checked)); Save(qsos, false, dr);
         }
     }
 }

@@ -2,11 +2,13 @@
 
 ## 1.1 — 2026-11-24
 
-- **Rapports par défaut** (case cochée par défaut, jamais appliqués à un contact qui a déjà un rapport) : 59/59 en phonie (SSB, USB, LSB, AM, FM, FreeDV, D-STAR, C4FM, DMR), 599/599 en CW, -01/-01 en FT8, FT4 et FT2. À la fin, le journal liste les modes sans règle (JT65, PSK31, RTTY, DATA…) pour décision.
-- **Champ « Mon locator »** (facultatif) : écrit `MY_GRIDSQUARE` dans chaque contact. Le locator du correspondant (`GRIDSQUARE`) est lu aussi dans l'attribut précis de la cellule QRZ.
-- **Robustesse** : la page est lue seulement quand elle est complètement affichée ; jusqu'à 4 essais si QRZ ne répond pas à la page suivante ; rechargement automatique du logbook si la page est bloquée ; Edge est remis au premier plan et ne ralentit plus ses chargements quand sa fenêtre est masquée.
+- **Période de dates** : cases « Période : du … au … » (décochées = tout le journal). L'application trouve la bonne page par recherche dichotomique (une dizaine de sauts au lieu de parcourir des centaines de pages) et s'arrête dès que la période est dépassée.
+- **Reprise** : si le fichier ADIF de sortie existe déjà, l'application propose de le **compléter** (reprise à partir de la date où il s'arrête, sans doublons, y compris pour un ancien fichier sans identifiants) ou de recommencer (l'ancien est gardé en `.bak`). Après un arrêt ou une panne, il suffit de relancer. Sauvegarde intermédiaire régulière, écriture sécurisée (fichier temporaire).
+- **Rapports réels** (case à cocher, lent : environ 1 contact par seconde) : lecture de la fiche de chaque contact par requête directe (sans clic) pour récupérer RST envoyé/reçu, QTH, commentaire, état et comté. Les colonnes RST de la liste QRZ sont réservées aux abonnés.
+- **Rapports par défaut selon le mode** pour les contacts sans rapport : règles dans `QRZLogExport-rapports.txt` (créé à côté de l'exe, modifiable) : 59 phonie, 599 CW, -01 FT8/FT4/FT2, 599 RTTY/PSK31 et autres modes numériques classiques, -15 JT65/JT9, -10 JS8/FT8Call/ROS, 595 SSTV. Un mode sans règle reste sans rapport et est listé à la fin.
+- **Identifiant QRZ** (`APP_QRZLOG_LOGID`) écrit dans chaque contact.
+- **Robustesse** : page lue seulement quand elle est complètement affichée ; 4 essais si QRZ ne répond pas ; rechargement du logbook si la page est bloquée ; Edge remis au premier plan et sans mise en veille quand sa fenêtre est masquée.
 - Essai réel : 265 179 contacts (1 326 pages), dont 259 663 avec locator.
-
 
 ## 1.0 — 2026-11-24
 
