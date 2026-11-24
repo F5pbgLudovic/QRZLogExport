@@ -1,5 +1,12 @@
 # Historique
 
+## 1.2 — 2026-11-24
+
+- **Nouvel onglet « 3. Nettoyer Incoming »** : rejette les demandes de confirmation anciennes de la liste « Incoming » de QRZ (motif « Not in my logbook »). On indique le nombre de jours : toutes les demandes dont la date du QSO est plus ancienne sont rejetées une par une, la liste est rechargée, et on recommence jusqu'à ce qu'il n'en reste plus. Une confirmation (nombre, première et dernière demande) est demandée avant de commencer ; arrêt après 3 échecs de suite ; bouton Arrêter. Essai réel sur une demande : OK.
+- **Edge déjà ouvert réutilisé** (plus de fenêtre figée si un Edge du programme tournait encore) ; l'ouverture d'Edge ne bloque plus la fenêtre.
+- **Rappel à l'opérateur** (fenêtre) si Edge n'est pas ouvert au moment de « Nettoyer Incoming » ou de « Récupérer tout le journal ».
+- Inclut tout ce qui est décrit pour la 1.1 ci-dessous (la 1.1 n'a pas été publiée seule : la release est la 1.2).
+
 ## 1.1 — 2026-11-24
 
 - **Période de dates** : cases « Période : du … au … » (décochées = tout le journal). L'application trouve la bonne page par recherche dichotomique (une dizaine de sauts au lieu de parcourir des centaines de pages) et s'arrête dès que la période est dépassée.

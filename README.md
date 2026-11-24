@@ -32,6 +32,10 @@ QRZ n'offre pas toujours un export simple de tout le journal. Ce logiciel ouvre 
 - **Reprise** : si le fichier de sortie existe déjà, l'application demande s'il faut le **compléter** (elle reprend à la date où le fichier s'arrête et n'ajoute que les contacts manquants, sans doublons) ou **recommencer** (l'ancien est gardé en `.bak`). Après un arrêt, une coupure ou un plantage, il suffit de relancer avec le même fichier.
 - **Vrais rapports** (case « Lire les VRAIS rapports ») : la liste de QRZ ne contient pas les RST (colonnes réservées aux abonnés), mais la fiche de chaque contact oui. L'application lit chaque fiche par une requête directe (aucun clic) et récupère **RST envoyé / reçu, QTH, commentaire, état, comté**. C'est lent (environ 1 contact par seconde) : à réserver à une période de dates, par exemple quelques milliers de contacts.
 
+## Nettoyer la liste « Incoming » (onglet 3)
+
+Les demandes de confirmation reçues d'autres opérateurs (menu **Incoming** de QRZ) s'accumulent. Après connexion (onglet 1), indiquez un nombre de jours : l'application rejette, avec le motif **« Not in my logbook »**, toutes les demandes dont la **date du QSO** est plus ancienne, une par une, recharge la liste et recommence jusqu'à ce qu'il n'en reste plus. Elle demande confirmation avant de commencer (le rejet est définitif) et s'arrête après 3 échecs de suite.
+
 ## Champs exportés
 
 La liste de QRZ contient : date, heure (UTC), indicatif, fréquence, mode, locator du correspondant, pays, nom. La **bande** est déduite de la fréquence. L'identifiant interne QRZ est écrit dans `APP_QRZLOG_LOGID`.
@@ -91,9 +95,19 @@ GNU GPL v3 — voir [LICENSE](LICENSE). Logiciel libre et gratuit, sans aucune g
 
 **Method 2 — QRZ API key**: paste the logbook API key (QRZ > Logbook > Settings > API Access) and your callsign to get the full ADIF from QRZ (RST, comments, …). *Follows the QRZ API documentation but has not been tried on a real account yet.*
 
+## Date range, resume, real reports
+
+- **Date range**: tick "du … au …" to fetch only some dates. The program jumps straight to the right page (binary search) and stops once the range is passed.
+- **Resume**: if the output file already exists, the program asks whether to **complete** it (restarts from the date where the file stops, adds only missing QSOs, no duplicates) or **restart** (the old file is kept as `.bak`). After a stop, a power cut or a crash, just run again with the same file.
+- **Real reports** (box "Lire les VRAIS rapports"): the QRZ list has no RST (columns reserved to subscribers) but each QSO's detail page does. The program reads each page with a direct request (no clicks) and gets **RST sent / received, QTH, comment, state, county**. Slow (about 1 QSO per second): use it for a date range.
+
+## Clean the "Incoming" list (tab 3)
+
+Confirmation requests from other operators (QRZ **Incoming** menu) pile up. Click *Ouvrir QRZ dans Edge*, log in, enter a number of days, then *Nettoyer la liste « Incoming »*: the program rejects, with the reason **"Not in my logbook"**, every request whose **QSO date** is older than that, one by one, reloads the list and starts again until none is left. It asks for confirmation first (a rejection is final) and stops after 3 failures in a row. If Edge is not open, a reminder window explains what to do (same for *Récupérer tout le journal*).
+
 ## Exported fields (method 1)
 
-The QRZ table only holds: date, time (UTC), callsign, frequency, mode, grid, country, name. The **band** is derived from the frequency. Slashed zeros "Ø" become "0"; accents are converted to ASCII.
+The QRZ table holds: date, time (UTC), callsign, frequency, mode, the **correspondent's grid**, country, name. The **band** is derived from the frequency. A default report by mode (59 phone, 599 CW, -01 FT8/FT4/FT2, …; editable file `QRZLogExport-rapports.txt` next to the exe) is added to QSOs without one. Slashed zeros "Ø" become "0"; accents are converted to ASCII.
 
 ## Speed
 

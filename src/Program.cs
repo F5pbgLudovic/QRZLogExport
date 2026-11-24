@@ -18,7 +18,7 @@ namespace QRZLogExport
 {
     static class Program
     {
-        public const string Version = "1.1";
+        public const string Version = "1.2";
         [STAThread]
         static void Main(string[] args)
         {
@@ -341,7 +341,8 @@ return '';})(";
     class MainForm : Form
     {
         TextBox txtOut, txtLog, txtKey, txtCall; CheckBox chkRst, chkReal; DateTimePicker dtpFrom, dtpTo;
-        Button btnOpen, btnGo, btnApi, btnStop, btnDump, btnBrowse;
+        Button btnOpen, btnGo, btnApi, btnStop, btnDump, btnBrowse, btnClean, btnOpen2;
+        NumericUpDown numDays; bool cleanAuto; int cleanMax = int.MaxValue;
         Label lblState;
         ProgressBar bar;
         TabControl tabs;
@@ -360,7 +361,19 @@ return '';})(";
             tabs = new TabControl { Dock = DockStyle.Top, Height = 210 };
             var t1 = new TabPage("1. Connecté (navigateur Edge)");
             var t2 = new TabPage("2. Clé API QRZ (plus fiable)");
-            tabs.TabPages.Add(t1); tabs.TabPages.Add(t2);
+            var t3 = new TabPage("3. Nettoyer « Incoming »");
+            tabs.TabPages.Add(t1); tabs.TabPages.Add(t2); tabs.TabPages.Add(t3);
+
+            var h3 = new Label { Left = 10, Top = 10, Width = 730, Height = 78, Text =
+                "Les demandes de confirmation (menu « Incoming » de QRZ) d'anciens contacts s'accumulent. Cet onglet les rejette une par une\r\n" +
+                "avec le motif « Not in my logbook », jusqu'à ce que toutes les demandes anciennes aient disparu.\r\n" +
+                "1) « Ouvrir QRZ dans Edge » et connectez-vous.  2) Choisissez le nombre de jours.  3) « Nettoyer » (confirmation demandée avant de commencer)." };
+            var l3 = new Label { Left = 10, Top = 100, Width = 330, Text = "Rejeter les demandes dont la date du QSO a plus de :" };
+            numDays = new NumericUpDown { Left = 345, Top = 96, Width = 70, Minimum = 0, Maximum = 36500, Value = 30 };
+            var l3b = new Label { Left = 422, Top = 100, Width = 300, Text = "jours" };
+            btnOpen2 = new Button { Left = 10, Top = 134, Width = 230, Height = 34, Text = "Ouvrir QRZ dans Edge" };
+            btnClean = new Button { Left = 250, Top = 134, Width = 300, Height = 34, Text = "Nettoyer la liste « Incoming »" };
+            t3.Controls.AddRange(new Control[] { h3, l3, numDays, l3b, btnOpen2, btnClean });
 
             var h1 = new Label { Left = 10, Top = 10, Width = 730, Height = 70, Text =
                 "A. Cliquez sur « Ouvrir QRZ dans Edge » et connectez-vous à QRZ (la connexion est retenue pour la prochaine fois).\r\n" +
@@ -400,9 +413,15 @@ return '';})(";
             Controls.Add(txtLog); Controls.Add(lblState); Controls.Add(pnl); Controls.Add(tabs);
 
             btnBrowse.Click += (s, e) => { using (var d = new SaveFileDialog { Filter = "ADIF (*.adi;*.adif)|*.adi;*.adif", FileName = Path.GetFileName(txtOut.Text), DefaultExt = "adi" }) if (d.ShowDialog() == DialogResult.OK) txtOut.Text = d.FileName; };
-            btnOpen.Click += (s, e) => { try { OpenEdge("https://logbook.qrz.com/"); } catch (Exception ex) { Log("ERREUR : " + ex.Message); } };
+            btnOpen.Click += (s, e) => Start(() => OpenEdge("https://logbook.qrz.com/"));
             btnGo.Click += (s, e) =>
             {
+                if (!EdgeAlive())
+                {
+                    Log("Edge n'est pas ouvert : cliquez d'abord sur « Ouvrir QRZ dans Edge » et connectez-vous.");
+                    MessageBox.Show(this, "Edge n'est pas ouvert.\r\n\r\n1) Cliquez sur « Ouvrir QRZ dans Edge »\r\n2) Connectez-vous à QRZ et affichez la liste de vos contacts\r\n3) Relancez « Récupérer tout le journal »", "Récupérer le journal", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
                 resumeChoice = false;
                 string f = txtOut.Text;
                 if (File.Exists(f) && new FileInfo(f).Length > 200)
@@ -427,6 +446,23 @@ return '';})(";
             };
             btnApi.Click += (s, e) => Start(RunApi);
             btnDump.Click += (s, e) => Start(RunDump);
+            btnOpen2.Click += (s, e) => Start(() => OpenEdge("https://logbook.qrz.com/"));
+            btnClean.Click += (s, e) => { int d = (int)numDays.Value; Start(() => RunClean(d)); };
+
+            // Mode test sans clic : QRZLogExport.exe --clean port=N days=N [max=N] [log=fichier]
+            if (args.Length >= 1 && args[0] == "--clean")
+            {
+                cleanAuto = true; int dd = 30;
+                for (int ai = 1; ai < args.Length; ai++)
+                {
+                    string a = args[ai];
+                    if (a.StartsWith("port=")) port = int.Parse(a.Substring(5));
+                    else if (a.StartsWith("days=")) dd = int.Parse(a.Substring(5));
+                    else if (a.StartsWith("max=")) cleanMax = int.Parse(a.Substring(4));
+                    else if (a.StartsWith("log=")) testLog = a.Substring(4);
+                }
+                Shown += (s, e) => Start(() => { if (port == 0) OpenEdge("https://logbook.qrz.com/"); RunClean(dd); Invoke((Action)Close); });
+            }
             btnStop.Click += (s, e) => { stop = true; Log("Arrêt demandé..."); };
 
             // Mode test sans clic : QRZLogExport.exe --test <url> <sortie.adi>
@@ -461,7 +497,7 @@ return '';})(";
         void Busy(bool b)
         {
             if (InvokeRequired) { try { BeginInvoke((Action)(() => Busy(b))); } catch { } return; }
-            btnGo.Enabled = btnApi.Enabled = btnDump.Enabled = btnOpen.Enabled = !b; btnStop.Enabled = b;
+            btnGo.Enabled = btnApi.Enabled = btnDump.Enabled = btnOpen.Enabled = btnOpen2.Enabled = btnClean.Enabled = !b; btnStop.Enabled = b;
         }
         void Start(Action a)
         {
@@ -494,7 +530,23 @@ return '';})(";
         void OpenEdge(string url)
         {
             if (EdgeAlive()) { Log("Edge est déjà ouvert (fenêtre QRZ)."); return; }
-            var l = new TcpListener(IPAddress.Loopback, 0); l.Start(); port = ((IPEndPoint)l.LocalEndpoint).Port; l.Stop();
+            // un Edge lancé auparavant avec notre profil tourne peut-être encore : on le réutilise
+            try
+            {
+                using (var q = new System.Management.ManagementObjectSearcher("SELECT CommandLine FROM Win32_Process WHERE Name='msedge.exe' OR Name='chrome.exe'"))
+                    foreach (System.Management.ManagementObject o in q.Get())
+                    {
+                        string cl = Convert.ToString(o["CommandLine"]);
+                        if (cl.IndexOf("edge-profile", StringComparison.OrdinalIgnoreCase) < 0 || cl.Contains("--type=")) continue;
+                        var m = Regex.Match(cl, @"remote-debugging-port=(\d+)");
+                        if (!m.Success) continue;
+                        port = int.Parse(m.Groups[1].Value);
+                        if (EdgeAlive()) { Log("Edge est déjà ouvert : connectez-vous à QRZ si besoin (fenêtre Edge)."); try { using (var c0 = Attach()) { } } catch { } return; }
+                        port = 0;
+                    }
+            }
+            catch { }
+            var l =new TcpListener(IPAddress.Loopback, 0); l.Start(); port = ((IPEndPoint)l.LocalEndpoint).Port; l.Stop();
             Directory.CreateDirectory(ProfileDir);
             var psi = new ProcessStartInfo(FindEdge(), "--remote-debugging-port=" + port + " --remote-allow-origins=* --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --no-first-run --user-data-dir=\"" + ProfileDir + "\" \"" + url + "\"") { UseShellExecute = false };
             edge = Process.Start(psi);
@@ -672,6 +724,110 @@ return '';})(";
                 }
                 catch (Exception ex) { Log("attente : " + ex.Message); }
                 Thread.Sleep(2000);
+            }
+        }
+
+        // ---------- Nettoyage de la liste « Incoming » ----------
+        const string JsReqList =
+            "(function(){var o=[];[].slice.call(document.querySelectorAll('tr[id^=rr-]')).forEach(function(tr){" +
+            "var b=tr.querySelector('button[onclick^=\"lb_reject\"]');if(!b)return;" +
+            "var m=/lb_reject\\('(\\d+)'\\)/.exec(b.getAttribute('onclick'));if(!m)return;var id=m[1];" +
+            "var rd=document.getElementById('rdate-'+id),rc=document.getElementById('rcall-'+id);" +
+            "o.push([id,rc?rc.value:'',rd?rd.value:'']);});" +
+            "return JSON.stringify({page:!!document.querySelector('#lbrequests'),rows:o});})()";
+        // envoie le meme formulaire que la fenetre « Reject QSO » (motif « Not in my logbook »)
+        const string JsReject =
+            "(async function(id){var f=document.getElementById('lbmenu');var fd=new FormData(f);" +
+            "fd.set('op','reject');fd.set('reason','Not in my logbook');fd.set('comments','');fd.set('qso',id);" +
+            "var r=await fetch(f.action,{method:'POST',body:new URLSearchParams(fd),credentials:'include'});" +
+            "var h=await r.text();var ok=/rejected successfully/i.test(h);" +
+            "if(ok){var b=document.querySelector('button[onclick=\"lb_reject(\\''+id+'\\')\"]');if(b){var tr=b.closest('tr');if(tr)tr.remove();}}" +
+            "return JSON.stringify({ok:ok,status:r.status,snip:ok?'':h.replace(/<script[\\s\\S]*?<\\/script>/gi,'').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').slice(0,200)});})(";
+
+        class Req { public string id, call, date; }
+        List<Req> ListRequests(Cdp c, string cutoff, out int total)
+        {
+            total = 0;
+            var d = ser.Deserialize<Dictionary<string, object>>(c.Eval(JsReqList));
+            var res = new List<Req>();
+            if (!(bool)d["page"]) return null;
+            foreach (object r in (System.Collections.IEnumerable)d["rows"])
+            {
+                var a = ((System.Collections.IEnumerable)r).Cast<object>().Select(x => Convert.ToString(x)).ToArray();
+                total++;
+                if (a[2].Length == 10 && string.CompareOrdinal(a[2], cutoff) < 0) res.Add(new Req { id = a[0], call = a[1], date = a[2] });
+            }
+            return res;
+        }
+        void GoRequests(Cdp c)
+        {
+            try { c.Eval("lb_go('requests','')"); } catch { }
+            Thread.Sleep(4000);
+        }
+
+        void RunClean(int days)
+        {
+            string cutoff = DateTime.Today.AddDays(-days).ToString("yyyy-MM-dd");
+            if (!EdgeAlive())
+            {
+                Log("Edge n'est pas ouvert : cliquez d'abord sur « Ouvrir QRZ dans Edge » et connectez-vous.");
+                if (!cleanAuto) Invoke((Action)(() => MessageBox.Show(this, "Edge n'est pas ouvert.\r\n\r\n1) Cliquez sur « Ouvrir QRZ dans Edge »\r\n2) Connectez-vous à QRZ\r\n3) Relancez « Nettoyer la liste Incoming »", "Nettoyer Incoming", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                return;
+            }
+            using (var c = Attach())
+            {
+                int total; List<Req> old = null;
+                for (int i = 0; i < 6 && !stop; i++)
+                {
+                    try { old = ListRequests(c, cutoff, out total); } catch (Exception ex) { old = null; Log("lecture : " + ex.Message); }
+                    if (old != null) break;
+                    if (i == 0) Log("Ouverture de la liste « Incoming »...");
+                    GoRequests(c);
+                }
+                if (old == null) { Log("La liste « Incoming » n'a pas pu être ouverte. Connectez-vous à QRZ (onglet 1) puis recommencez."); return; }
+                ListRequests(c, cutoff, out total);
+                Log("Liste « Incoming » : " + total + " demandes, dont " + old.Count + " avec un QSO antérieur au " + cutoff + " (plus de " + days + " jours).");
+                if (old.Count == 0) { Log("Rien à nettoyer."); return; }
+                if (!cleanAuto)
+                {
+                    string ex1 = old[0].call + " (" + old[0].date + ")", ex2 = old[old.Count - 1].call + " (" + old[old.Count - 1].date + ")";
+                    var ans = (DialogResult)Invoke((Func<DialogResult>)(() => MessageBox.Show(this,
+                        old.Count + " demande(s) vont être REJETÉES avec le motif « Not in my logbook ».\r\n\r\nPremière : " + ex1 + "\r\nDernière : " + ex2 +
+                        "\r\n\r\nLe rejet ne peut pas être annulé. Continuer ?", "Nettoyer Incoming", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)));
+                    if (ans != DialogResult.Yes) { Log("Annulé, rien n'a été rejeté."); return; }
+                }
+                int done = 0, fails = 0, pass = 0, planned = Math.Min(old.Count, cleanMax);
+                Prog(0, planned);
+                while (old.Count > 0 && !stop && done < cleanMax && pass < 30)
+                {
+                    pass++;
+                    int before = done;
+                    foreach (var r in old)
+                    {
+                        if (stop || done >= cleanMax) break;
+                        bool ok = false; string why = "";
+                        try
+                        {
+                            var d = ser.Deserialize<Dictionary<string, object>>(c.Eval(JsReject + "'" + r.id + "')"));
+                            ok = (bool)d["ok"]; why = Convert.ToString(d["snip"]);
+                        }
+                        catch (Exception ex) { why = ex.Message; }
+                        if (ok) { done++; fails = 0; Log("Rejeté " + done + " : " + r.call + " (QSO du " + r.date + ")"); Prog(done, Math.Max(planned, done)); }
+                        else
+                        {
+                            fails++; Log("Échec pour " + r.call + " (" + r.date + ") : " + why);
+                            if (fails >= 3) { Log("ARRÊT : 3 échecs de suite. Rien d'autre n'a été modifié."); return; }
+                        }
+                        Thread.Sleep(400);
+                    }
+                    if (done >= cleanMax || stop) break;
+                    // on recharge la liste : s'il reste des demandes anciennes, on recommence
+                    GoRequests(c);
+                    try { old = ListRequests(c, cutoff, out total) ?? new List<Req>(); } catch { old = new List<Req>(); }
+                    if (old.Count > 0 && done == before) { Log("Les demandes restantes ne partent pas : arrêt."); break; }
+                }
+                GoRequests(c);
+                Log("Terminé : " + done + " demande(s) rejetée(s)." + (stop ? " (arrêté à la demande)" : ""));
             }
         }
 
